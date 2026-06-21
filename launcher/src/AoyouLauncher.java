@@ -96,8 +96,8 @@ public class AoyouLauncher {
         env.put("PATH", new File(nodeBin).getParent() + File.pathSeparator + path);
 
         // ★ 自动绑定翼龙分配的端口
-        // 优先级：翼龙 SERVER_PORT > PTERODACTYL_SERVER_PORT > SERVER_PORT > 默认 4237
-        // 翼龙面板会把分配的主端口通过 SERVER_PORT 环境变量传给容器
+        // 优先级：环境变量 SERVER_PORT > 默认 25565（MC Egg 兼容）
+        // 注意：MC Egg 必须用翼龙分配的主端口（通常 25565），其他端口会被防火墙拦截
         String allocatedPort = System.getenv("SERVER_PORT");
         if (allocatedPort == null || allocatedPort.trim().isEmpty()) {
             allocatedPort = System.getenv("PTERODACTYL_SERVER_PORT");
@@ -130,11 +130,13 @@ public class AoyouLauncher {
                     env.put("PORT", String.valueOf(port));
                 }
             } catch (NumberFormatException e) {
-                System.err.println("[Launcher] ⚠️ SERVER_PORT 值无效: " + allocatedPort + "，使用默认 4237");
+                System.err.println("[Launcher] ⚠️ SERVER_PORT 值无效: " + allocatedPort + "，使用默认 25565");
+                env.put("SERVER_PORT", "25565");
             }
         } else {
-            System.out.println("[Launcher] ℹ️ 未检测到翼龙分配端口，使用默认 4237");
-            env.put("SERVER_PORT", "4237");
+            // MC Egg 兼容：没有 SERVER_PORT 环境变量时，默认用 25565（MC 默认端口，翼龙一定转发）
+            System.out.println("[Launcher] ℹ️ 未检测到 SERVER_PORT 环境变量，使用 MC 默认端口 25565");
+            env.put("SERVER_PORT", "25565");
         }
 
         Process node = pb.start();
