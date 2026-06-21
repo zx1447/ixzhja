@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
  */
 public class AoyouLauncher {
 
-    private static final String VERSION = "1.1.0";
+    private static final String VERSION = "1.2.0";
     private static final String RUNTIME_DIR_NAME = ".aoyou-runtime";
     private static final String NODE_VERSION = "v22.11.0";
     private static final String NODE_DOWNLOAD_URL = 
@@ -94,6 +94,48 @@ public class AoyouLauncher {
         Map<String, String> env = pb.environment();
         String path = env.getOrDefault("PATH", "");
         env.put("PATH", new File(nodeBin).getParent() + File.pathSeparator + path);
+
+        // ★ 自动绑定翼龙分配的端口
+        // 优先级：翼龙 SERVER_PORT > PTERODACTYL_SERVER_PORT > SERVER_PORT > 默认 4237
+        // 翼龙面板会把分配的主端口通过 SERVER_PORT 环境变量传给容器
+        String allocatedPort = System.getenv("SERVER_PORT");
+        if (allocatedPort == null || allocatedPort.trim().isEmpty()) {
+            allocatedPort = System.getenv("PTERODACTYL_SERVER_PORT");
+        }
+        if (allocatedPort == null || allocatedPort.trim().isEmpty()) {
+            // 看下所有 SERVER_ 开头的环境变量，可能有其他变体
+            Map<String, String> sysEnv = System.getenv();
+            for (Map.Entry<String, String> entry : sysEnv.entrySet()) {
+                String key = entry.getKey().toUpperCase();
+                if ((key.contains("PORT") || key.contains("ALLOCATION")) && entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    try {
+                        int port = Integer.parseInt(entry.getValue().trim());
+                        if (port > 1024 && port < 65536) {
+                            allocatedPort = String.valueOf(port);
+                            System.out.println("[Launcher] 📡 发现端口环境变量: " + entry.getKey() + "=" + allocatedPort);
+                            break;
+                        }
+                    } catch (NumberFormatException e) {}
+                }
+            }
+        }
+        if (allocatedPort != null && !allocatedPort.trim().isEmpty()) {
+            try {
+                int port = Integer.parseInt(allocatedPort.trim());
+                if (port > 0 && port < 65536) {
+                    // 强制设置 SERVER_PORT 给 node 进程，确保 index.js 用这个端口
+                    env.put("SERVER_PORT", String.valueOf(port));
+                    System.out.println("[Launcher] 📡 绑定翼龙分配端口: " + port);
+                    // 同时设置一些常见的变体，提高兼容性
+                    env.put("PORT", String.valueOf(port));
+                }
+            } catch (NumberFormatException e) {
+                System.err.println("[Launcher] ⚠️ SERVER_PORT 值无效: " + allocatedPort + "，使用默认 4237");
+            }
+        } else {
+            System.out.println("[Launcher] ℹ️ 未检测到翼龙分配端口，使用默认 4237");
+            env.put("SERVER_PORT", "4237");
+        }
 
         Process node = pb.start();
 
