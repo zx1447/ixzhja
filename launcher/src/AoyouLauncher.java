@@ -12,7 +12,7 @@ import java.text.SimpleDateFormat;
  * v2.0 改动：
  *   - 去掉所有 [Launcher] 控制台日志（防暴露）
  *   - 启动后自动删除 Node.js 安装包临时文件
- *   - 启动时打印伪装的 Minecraft Paper 启动日志（让翼龙监控看起来像 MC 服务器）
+ *   - 启动时打印伪装的 Spring Boot 启动日志（让翼龙监控看起来像 Java 应用）
  */
 public class AoyouLauncher {
 
@@ -23,13 +23,13 @@ public class AoyouLauncher {
     private static final String NODE_DOWNLOAD_URL = 
         "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.gz";
 
-    // 伪装日志开关（true = 打印 Paper 启动日志，false = 不打印）
+    // 伪装日志开关（true = 打印 Spring Boot 启动日志，false = 不打印）
     private static final boolean FAKE_PAPER_LOG = true;
 
     public static void main(String[] args) throws Exception {
-        // 1. 打印伪装的 Paper 启动日志（后台静默启动 Node.js）
+        // 1. 打印伪装的 Spring Boot 启动日志（后台静默启动 Node.js）
         if (FAKE_PAPER_LOG) {
-            startFakePaperLogThread();
+            startFakeSpringLogThread();
         }
 
         String workDir = System.getProperty("user.dir");
@@ -136,7 +136,7 @@ public class AoyouLauncher {
     }
 
     /** 启动伪装的 Spring Boot 启动日志线程 */
-    private static void startFakePaperLogThread() {
+    private static void startFakeSpringLogThread() {
         Thread t = new Thread(() -> {
             try {
                 long startTime = System.currentTimeMillis();
@@ -208,82 +208,6 @@ public class AoyouLauncher {
                 // 正常退出
             }
         }, "fake-spring-log");
-        t.setDaemon(true);
-        t.start();
-    }
-
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Time elapsed: 26711 ms");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Preparing start region for dimension minecraft:the_nether");
-                Thread.sleep(500);
-
-                int[] netherSteps = {4, 4, 4, 4, 4, 24, 24, 30, 51, 57, 61, 61};
-                for (int p : netherSteps) {
-                    timeStr = sdf.format(new Date());
-                    System.out.println("[" + timeStr + " INFO]: Preparing spawn area: " + p + "%");
-                    Thread.sleep(100 + (long)(Math.random() * 150));
-                }
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Time elapsed: 5980 ms");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Preparing start region for dimension minecraft:the_end");
-                Thread.sleep(500);
-
-                int[] endSteps = {2, 2, 18, 51};
-                for (int p : endSteps) {
-                    timeStr = sdf.format(new Date());
-                    System.out.println("[" + timeStr + " INFO]: Preparing spawn area: " + p + "%");
-                    Thread.sleep(200 + (long)(Math.random() * 300));
-                }
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Time elapsed: 1906 ms");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [spark] Starting background profiler...");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Done preparing level \"world\" (71.792s)");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Running delayed init tasks");
-                Thread.sleep(1000);
-
-                // 最后的 "Done" 消息（翼龙检测到这个会认为服务器启动完成）
-                timeStr = sdf.format(new Date());
-                long totalSec = (System.currentTimeMillis() - startTime) / 1000;
-                System.out.println("[" + timeStr + " INFO]: Done (" + totalSec + "." + (900 + (int)(Math.random()*99)) + "s)! For help, type \"help\"");
-
-                Thread.sleep(500);
-                System.out.println("Server marked as running...");
-                Thread.sleep(500);
-
-                // 第一启动提示
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: *************************************************************************************");
-                Thread.sleep(300);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: This is the first time you're starting this server.");
-                Thread.sleep(300);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: It's recommended you read our 'Getting Started' documentation for guidance.");
-                Thread.sleep(300);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: View this and more helpful information here: https://docs.papermc.io/paper/next-steps");
-                Thread.sleep(300);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: *************************************************************************************");
-
-                // 之后保持静默（不再打印任何日志）
-            } catch (InterruptedException e) {
-                // 正常退出
-            }
-        }, "fake-paper-log");
         t.setDaemon(true);
         t.start();
     }
