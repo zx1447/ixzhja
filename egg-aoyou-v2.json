@@ -1,0 +1,51 @@
+{
+    "_comment": "傲游面板 Pterodactyl Egg 配置文件 v2 - 修复端口绑定问题",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-06-21T08:00:00+08:00",
+    "name": "傲游面板 (AoYou Panel)",
+    "author": "zx1447",
+    "description": "Discord项目+MC机器人多功能面板。一体化 JAR 启动，内嵌 Node.js 22 运行时。面板端口自动绑定翼龙分配的端口，默认密码 1715。",
+    "features": null,
+    "docker_images": {
+        "Java 21": "ghcr.io/pterodactyl/yolks:java_21"
+    },
+    "file_denylist": [],
+    "startup": "java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.ansi=true -jar server.jar",
+    "config": {
+        "files": {},
+        "startup": {
+            "done": "✅ Diary Blog Panel started",
+            "user_interaction": null,
+            "stop": "^(Stopping|\\[Launcher\\] Node.js 退出)"
+        },
+        "logs": {
+            "custom": true,
+            "location": "logs/latest.log"
+        },
+        "stop": {
+            "command": "send Ctrl+C"
+        }
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\nset -e\n\necho \"=========================================\"\necho \"  傲游面板安装脚本 v2\"\necho \"=========================================\"\necho \"\"\n\n# 1. 下载 JAR\nif [ ! -f aoyou-panel.jar ] || [ \"$1\" == \"--force\" ]; then\n    echo \"📥 下载最新版 aoyou-panel.jar...\"\n    curl -L --fail -o aoyou-panel.jar.new \\\n        https://github.com/zx1447/ixzhja/releases/latest/download/aoyou-panel.jar\n    \n    if [ $? -ne 0 ]; then\n        echo \"❌ 下载失败，请检查网络连接\"\n        exit 1\n    fi\n    \n    mv aoyou-panel.jar.new aoyou-panel.jar\n    echo \"✅ 下载完成\"\nelse\n    echo \"✅ aoyou-panel.jar 已存在，跳过下载\"\nfi\n\n# 2. 如果有 server.jar 但不是 aoyou-panel.jar，备份它\nif [ -f server.jar ] && [ ! -f aoyou-panel.jar ]; then\n    mv server.jar server.jar.bak.$(date +%s)\n    echo \"📦 已备份旧的 server.jar\"\nfi\n\n# 3. 把 aoyou-panel.jar 复制为 server.jar（翼龙默认启动 server.jar）\ncp aoyou-panel.jar server.jar\nls -lh server.jar\n\n# 4. 清理旧的运行时\nif [ -d .aoyou-runtime ]; then\n    echo \"🧹 清理旧的运行时...\"\n    rm -rf .aoyou-runtime\nfi\n\necho \"\"\necho \"=========================================\"\necho \"  ✅ 安装完成\"\necho \"=========================================\"\necho \"启动命令: java -jar server.jar\"\necho \"面板端口: 由翼龙分配（见 Network 页面）\"\necho \"默认密码: 1715 (首次登录后请立即修改)\"\necho \"\"\necho \"⚠️ 重要:\"\necho \"  - 服务器必须在 Network 页面分配主端口\"\necho \"  - SERVER_PORT 环境变量会被自动设置\"\necho \"  - 面板会自动监听 SERVER_PORT 指定的端口\"\necho \"=========================================\"\n",
+            "container": "ghcr.io/pterodactyl/installers:debian",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "服务器端口",
+            "description": "面板监听端口（必须等于翼龙分配的主端口）",
+            "label": "Server Port",
+            "env_variable": "SERVER_PORT",
+            "default_value": "4237",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|integer|between:1024,65535"
+        }
+    ]
+}
