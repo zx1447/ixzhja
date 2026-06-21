@@ -1,1 +1,107 @@
+name: Build All-in-One JAR
 
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'launcher/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: 下载 Node.js 22 运行时 (Linux x64)
+        run: |
+          mkdir -p runtime/node-bin
+          echo "下载 Node.js v22.11.0 linux-x64..."
+          curl -L https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-x64.tar.xz \
+            | tar xJ --strip-components=1 -C runtime/node-bin
+          cd runtime/node-bin
+          rm -rf include share/*.md share/man CHANGELOG.md LICENSE README.md
+          du -sh .
+
+      - name: 安装应用依赖
+        run: |
+          cp app/package.json .
+          npm install --omit=dev --no-audit --no-fund --no-progress
+          mv node_modules runtime/
+          echo "node_modules 体积: $(du -sh runtime/node_modules | cut -f1)"
+
+      - name: 编译 Java 启动器
+        run: |
+          mkdir -p build
+          javac -d build launcher/src/AoyouLauncher.java
+          mkdir -p build/META-INF
+          cp launcher/META-INF/MANIFEST.MF build/META-INF/
+
+      - name: 构建 All-in-One JAR
+        run: |
+          cd build
+          jar cfm ../aoyou-panel.jar META-INF/MANIFEST.MF *.class
+          cd ..
+          jar uf aoyou-panel.jar -C app index.js -C app package.json
+          jar uf aoyou-panel.jar -C runtime node-bin
+          jar uf aoyou-panel.jar -C runtime node_modules
+          echo "=============================="
+          ls -lh aoyou-panel.jar
+          echo "=============================="
+          echo "JAR 内容（前 30 项）:"
+          jar tf aoyou-panel.jar | head -30
+          echo "..."
+          echo "JAR 总文件数: $(jar tf aoyou-panel.jar | wc -l)"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: aoyou-panel-jar
+          path: aoyou-panel.jar
+          retention-days: 30
+
+      - name: 发布到 GitHub Release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: aoyou-panel.jar
+          tag_name: latest
+          name: "傲游面板 (Latest)"
+          body: |
+            ## 傲游面板一体化 JAR
+
+            ### 使用方法
+            1. 下载 `aoyou-panel.jar`
+            2. 启动: `java -jar aoyou-panel.jar`
+            3. 访问: http://localhost:4237
+            4. 默认密码: `1715`
+
+            ### 翼龙面板配置
+            - Startup: `java -Xms128M -Xmx512M -jar aoyou-panel.jar`
+            - Image: `ghcr.io/pterodactyl/yolks:java_21`
+            - Install Script:
+              ```bash
+              #!/bin/bash
+              curl -L -o aoyou-panel.jar https://github.com/zx1447/ixzhja/releases/latest/download/aoyou-panel.jar
+              ```
+
+            ### 系统要求
+            - OS: Linux x64
+            - Java: 21+
+            - 内存: ≥ 512MB
+            - 磁盘: ≥ 500MB
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
