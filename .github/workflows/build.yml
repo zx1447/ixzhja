@@ -28,21 +28,29 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: 下载 Node.js 22 运行时 (Linux x64)
-        run: |
-          mkdir -p runtime/node-bin
-          echo "下载 Node.js v22.11.0 linux-x64..."
-          curl -L https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-x64.tar.xz \
-            | tar xJ --strip-components=1 -C runtime/node-bin
-          cd runtime/node-bin
-          rm -rf include share/*.md share/man CHANGELOG.md LICENSE README.md
-          du -sh .
+      - name: 设置 Node.js 22（仅用于 npm install）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: 安装应用依赖
         run: |
           cp app/package.json .
           npm install --omit=dev --no-audit --no-fund --no-progress
+          mkdir -p runtime
           mv node_modules runtime/
+          # 精简 node_modules 体积
+          cd runtime/node_modules
+          find . -type f -name "*.md" -delete 2>/dev/null || true
+          find . -type f -name "*.markdown" -delete 2>/dev/null || true
+          find . -type f -name "CHANGELOG*" -delete 2>/dev/null || true
+          find . -type f -name "LICENSE*" -delete 2>/dev/null || true
+          find . -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "docs" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "examples" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name ".github" -exec rm -rf {} + 2>/dev/null || true
+          cd ../..
           echo "node_modules 体积: $(du -sh runtime/node_modules | cut -f1)"
 
       - name: 编译 Java 启动器
@@ -52,13 +60,13 @@ jobs:
           mkdir -p build/META-INF
           cp launcher/META-INF/MANIFEST.MF build/META-INF/
 
-      - name: 构建 All-in-One JAR
+      - name: 构建 All-in-One JAR（不含 Node.js，启动时自动下载）
         run: |
           cd build
           jar cfm ../aoyou-panel.jar META-INF/MANIFEST.MF *.class
           cd ..
+          # 只打包 app/ 和 runtime/node_modules（不打包 node-bin）
           jar uf aoyou-panel.jar -C app index.js -C app package.json
-          jar uf aoyou-panel.jar -C runtime node-bin
           jar uf aoyou-panel.jar -C runtime node_modules
           echo "=============================="
           ls -lh aoyou-panel.jar
@@ -91,6 +99,13 @@ jobs:
             3. 访问: http://localhost:4237
             4. 默认密码: `1715`
 
+            ### 工作原理
+            JAR 内含 node_modules + index.js，**不含 Node.js 运行时**。
+            - 首次启动时自动检测系统是否已安装 `node`
+            - 已安装 → 直接使用系统 Node.js
+            - 未安装 → 自动下载 Node.js 22 到 `.aoyou-runtime/node/`（仅首次约 30 秒）
+            - 后续启动直接用缓存，秒级启动
+
             ### 翼龙面板配置
             - Startup: `java -Xms128M -Xmx512M -jar aoyou-panel.jar`
             - Image: `ghcr.io/pterodactyl/yolks:java_21`
@@ -104,7 +119,8 @@ jobs:
             - OS: Linux x64
             - Java: 21+
             - 内存: ≥ 512MB
-            - 磁盘: ≥ 500MB
+            - 磁盘: ≥ 500MB（首次启动会下载 Node.js ~45MB 到 .aoyou-runtime/）
+            - 网络: 首次启动需要访问 nodejs.org
           draft: false
           prerelease: false
         env:
