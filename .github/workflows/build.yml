@@ -60,14 +60,14 @@ jobs:
           mkdir -p build/META-INF
           cp launcher/META-INF/MANIFEST.MF build/META-INF/
 
-      - name: 构建 All-in-One JAR（不含 Node.js，启动时自动下载）
+      - name: 构建 All-in-One JAR（含完整目录结构）
         run: |
           cd build
           jar cfm ../aoyou-panel.jar META-INF/MANIFEST.MF *.class
           cd ..
-          # 只打包 app/ 和 runtime/node_modules（不打包 node-bin）
-          jar uf aoyou-panel.jar -C app index.js -C app package.json
-          jar uf aoyou-panel.jar -C runtime node_modules
+          # 保留 app/ 和 runtime/ 前缀（不能用 -C，否则前缀丢失）
+          jar uf aoyou-panel.jar app/index.js app/package.json
+          jar uf aoyou-panel.jar runtime/node_modules
           echo "=============================="
           ls -lh aoyou-panel.jar
           echo "=============================="
@@ -75,6 +75,11 @@ jobs:
           jar tf aoyou-panel.jar | head -30
           echo "..."
           echo "JAR 总文件数: $(jar tf aoyou-panel.jar | wc -l)"
+          echo ""
+          echo "=== 验证关键文件 ==="
+          jar tf aoyou-panel.jar | grep "^app/index.js" && echo "✅ app/index.js 存在" || echo "❌ app/index.js 缺失"
+          jar tf aoyou-panel.jar | grep "^app/package.json" && echo "✅ app/package.json 存在" || echo "❌ app/package.json 缺失"
+          jar tf aoyou-panel.jar | grep "^runtime/node_modules" | head -1 && echo "✅ runtime/node_modules 存在" || echo "❌ runtime/node_modules 缺失"
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
