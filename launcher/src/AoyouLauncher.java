@@ -5,74 +5,73 @@ import java.util.jar.*;
 import java.util.concurrent.*;
 
 /**
- * 傲游面板一体化启动器
+ * 傲游面板一体化启动器 v1.1
  *
  * 工作流程：
- *   1. 启动时把内嵌的 Node.js runtime + index.js + node_modules 解压到工作目录的 .aoyou-runtime/
- *   2. 用解压出来的 node 二进制启动 index.js
- *   3. 转发 stdout/stderr
- *   4. 收到 SIGTERM/SIGINT 时优雅关闭 Node.js
+ *   1. 检查系统是否有 node 命令
+ *      ├─ 有 → 直接用系统的 node
+ *      └─ 没有 → 下载 Node.js 22 到 .aoyou-runtime/node/ 并解压
+ *   2. 从 JAR 解压 node_modules + index.js + package.json（首次启动）
+ *   3. 用 node 启动 index.js
+ *   4. 转发 stdout/stderr/stdin
+ *   5. 收到 SIGTERM/SIGINT 优雅关闭
  *
  * JAR 内部结构：
- *   aoyou-panel.jar
- *   ├── META-INF/MANIFEST.MF       (Main-Class: AoyouLauncher)
- *   ├── AoyouLauncher.class         (本文件编译后)
- *   ├── runtime/node-bin/           (Node.js 运行时，linux-x64)
- *   ├── runtime/node_modules/       (预装依赖)
- *   └── app/                        (应用代码)
- *       ├── index.js
+ *   aoyou-panel.jar (~30MB)
+ *   ├── META-INF/MANIFEST.MF
+ *   ├── AoyouLauncher.class
+ *   ├── runtime/
+ *   │   └── node_modules/        (预装依赖，约 28MB)
+ *   └── app/
+ *       ├── index.js              (主程序)
  *       └── package.json
  */
 public class AoyouLauncher {
 
-    private static final String VERSION = "1.0.0";
+    private static final String VERSION = "1.1.0";
     private static final String RUNTIME_DIR_NAME = ".aoyou-runtime";
-    private static final String NODE_ENTRY = "runtime/node-bin/bin/node";
-    private static final String APP_ENTRY = "app/index.js";
+    private static final String NODE_VERSION = "v22.11.0";
+    private static final String NODE_DOWNLOAD_URL = 
+        "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.xz";
 
     public static void main(String[] args) throws Exception {
         System.out.println("[Launcher] 傲游面板启动器 v" + VERSION);
         System.out.println("[Launcher] Java: " + System.getProperty("java.version"));
         System.out.println("[Launcher] OS: " + System.getProperty("os.name") + " " + System.getProperty("os.arch"));
 
-        // 1. 获取 JAR 自己的路径
-        String jarPath = getJarPath();
-        if (jarPath == null) {
-            System.err.println("[Launcher] ❌ 无法定位 JAR 文件，请用 java -jar 启动");
-            System.exit(1);
-            return;
-        }
-        System.out.println("[Launcher] JAR: " + jarPath);
-
-        // 2. 工作目录（解压目标）
         String workDir = System.getProperty("user.dir");
         String runtimeDir = workDir + File.separator + RUNTIME_DIR_NAME;
         Path runtimePath = Paths.get(runtimeDir);
+        Files.createDirectories(runtimePath);
 
-        // 3. 检测是否需要重新解压（首次启动 / 版本变化）
-        boolean needExtract = needsExtract(runtimePath);
-        if (needExtract) {
-            System.out.println("[Launcher] 📦 首次启动，解压运行时到 " + runtimeDir);
-            long start = System.currentTimeMillis();
-            extractRuntime(jarPath, runtimePath);
-            long elapsed = System.currentTimeMillis() - start;
-            System.out.println("[Launcher] ✅ 解压完成 (" + elapsed + "ms)");
-        } else {
-            System.out.println("[Launcher] ✅ 运行时已就绪");
-        }
-
-        // 4. 检查 node 二进制
-        String nodeBin = runtimeDir + File.separator + "node-bin/bin/node";
-        if (isWindows()) nodeBin = runtimeDir + File.separator + "node-bin\\node.exe";
-        if (!new File(nodeBin).exists()) {
-            System.err.println("[Launcher] ❌ Node.js 二进制不存在: " + nodeBin);
+        // 1. 检查并获取 node 二进制
+        System.out.println("[Launcher] 🔍 检查 Node.js...");
+        String nodeBin = findOrDownloadNode(runtimeDir);
+        if (nodeBin == null) {
+            System.err.println("[Launcher] ❌ 无法获取 Node.js 运行时");
             System.exit(1);
             return;
         }
-        // 确保可执行
-        new File(nodeBin).setExecutable(true);
+        System.out.println("[Launcher] ✅ Node.js: " + nodeBin);
 
-        // 5. 检查 index.js
+        // 2. 从 JAR 解压 node_modules + index.js
+        String jarPath = getJarPath();
+        if (jarPath == null) {
+            System.err.println("[Launcher] ❌ 无法定位 JAR 文件");
+            System.exit(1);
+            return;
+        }
+
+        boolean needExtract = needsExtract(runtimePath);
+        if (needExtract) {
+            System.out.println("[Launcher] 📦 首次启动，解压应用文件...");
+            long start = System.currentTimeMillis();
+            extractAppFiles(jarPath, runtimePath);
+            long elapsed = System.currentTimeMillis() - start;
+            System.out.println("[Launcher] ✅ 解压完成 (" + elapsed + "ms)");
+        }
+
+        // 3. 检查 index.js
         String indexPath = runtimeDir + File.separator + "index.js";
         if (!new File(indexPath).exists()) {
             System.err.println("[Launcher] ❌ index.js 不存在: " + indexPath);
@@ -80,26 +79,23 @@ public class AoyouLauncher {
             return;
         }
 
-        // 6. 启动 Node.js
+        // 4. 启动 Node.js
         System.out.println("[Launcher] 🚀 启动 Node.js...");
         List<String> cmd = new ArrayList<>();
         cmd.add(nodeBin);
         cmd.add("index.js");
-        // 透传启动参数
         for (String a : args) cmd.add(a);
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(new File(runtimeDir));
         pb.redirectErrorStream(true);
-        // 继承环境变量
         Map<String, String> env = pb.environment();
-        // 确保 PATH 包含 node-bin（有些子进程需要）
         String path = env.getOrDefault("PATH", "");
         env.put("PATH", new File(nodeBin).getParent() + File.pathSeparator + path);
 
         Process node = pb.start();
 
-        // 7. 转发 stdout
+        // 5. 转发 stdout
         Thread logThread = new Thread(() -> {
             try (BufferedReader r = new BufferedReader(
                     new InputStreamReader(node.getInputStream()))) {
@@ -107,14 +103,12 @@ public class AoyouLauncher {
                 while ((line = r.readLine()) != null) {
                     System.out.println(line);
                 }
-            } catch (IOException e) {
-                // 进程退出时流关闭，正常
-            }
+            } catch (IOException e) {}
         });
         logThread.setDaemon(true);
         logThread.start();
 
-        // 8. 转发 stdin（让用户能输入命令）
+        // 6. 转发 stdin
         Thread stdinThread = new Thread(() -> {
             try (BufferedReader r = new BufferedReader(
                     new InputStreamReader(System.in))) {
@@ -129,7 +123,7 @@ public class AoyouLauncher {
         stdinThread.setDaemon(true);
         stdinThread.start();
 
-        // 9. 优雅关闭
+        // 7. 优雅关闭
         final Process nodeRef = node;
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("[Launcher] 🛑 收到关闭信号，停止 Node.js...");
@@ -142,10 +136,97 @@ public class AoyouLauncher {
             } catch (InterruptedException e) {}
         }, "shutdown-hook"));
 
-        // 10. 等待退出
+        // 8. 等待退出
         int code = node.waitFor();
         System.out.println("[Launcher] Node.js 退出，代码: " + code);
         System.exit(code);
+    }
+
+    /** 查找或下载 Node.js */
+    private static String findOrDownloadNode(String runtimeDir) {
+        // 步骤 1: 检查 PATH 里的 node
+        String systemNode = findInPath("node");
+        if (systemNode != null) {
+            System.out.println("[Launcher] ✅ 系统已安装 Node.js: " + systemNode);
+            try {
+                Process p = new ProcessBuilder(systemNode, "--version").start();
+                BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                String ver = r.readLine();
+                p.waitFor();
+                System.out.println("[Launcher] Node.js 版本: " + ver);
+            } catch (Exception e) {}
+            return systemNode;
+        }
+
+        // 步骤 2: 检查 .aoyou-runtime/node/bin/node（之前下载过的）
+        String cachedNode = runtimeDir + File.separator + "node/bin/node";
+        if (new File(cachedNode).exists()) {
+            System.out.println("[Launcher] ✅ 使用缓存的 Node.js: " + cachedNode);
+            new File(cachedNode).setExecutable(true);
+            return cachedNode;
+        }
+
+        // 步骤 3: 下载 Node.js
+        System.out.println("[Launcher] 📥 系统未安装 Node.js，开始下载 " + NODE_VERSION + "...");
+        System.out.println("[Launcher] 下载地址: " + NODE_DOWNLOAD_URL);
+        try {
+            Path nodeDir = Paths.get(runtimeDir, "node");
+            Files.createDirectories(nodeDir);
+
+            // 下载并解压
+            ProcessBuilder pb = new ProcessBuilder("sh", "-c",
+                "curl -L '" + NODE_DOWNLOAD_URL + "' | tar xJ --strip-components=1 -C '" + nodeDir.toString() + "'");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+
+            // 转发下载日志
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    System.out.println("  [download] " + line);
+                }
+            }
+            int code = p.waitFor();
+            if (code != 0) {
+                System.err.println("[Launcher] ❌ Node.js 下载失败 (exit " + code + ")");
+                return null;
+            }
+
+            // 检查下载结果
+            String nodeBin = nodeDir + "/bin/node";
+            if (!new File(nodeBin).exists()) {
+                System.err.println("[Launcher] ❌ 下载完成但找不到 node 二进制");
+                return null;
+            }
+            new File(nodeBin).setExecutable(true);
+            System.out.println("[Launcher] ✅ Node.js 下载完成: " + nodeBin);
+
+            // 验证版本
+            try {
+                Process vp = new ProcessBuilder(nodeBin, "--version").start();
+                BufferedReader r = new BufferedReader(new InputStreamReader(vp.getInputStream()));
+                String ver = r.readLine();
+                vp.waitFor();
+                System.out.println("[Launcher] Node.js 版本: " + ver);
+            } catch (Exception e) {}
+
+            return nodeBin;
+        } catch (Exception e) {
+            System.err.println("[Launcher] ❌ 下载 Node.js 异常: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 在 PATH 里查找命令 */
+    private static String findInPath(String cmd) {
+        String path = System.getenv("PATH");
+        if (path == null) return null;
+        String[] dirs = path.split(File.pathSeparator);
+        for (String dir : dirs) {
+            File f = new File(dir, cmd);
+            if (f.exists() && f.canExecute()) return f.getAbsolutePath();
+        }
+        return null;
     }
 
     /** 获取当前 JAR 文件路径 */
@@ -158,35 +239,35 @@ public class AoyouLauncher {
         }
     }
 
-    /** 检查是否需要重新解压运行时 */
+    /** 检查是否需要重新解压 */
     private static boolean needsExtract(Path runtimePath) {
-        if (!Files.exists(runtimePath)) return true;
-        Path marker = runtimePath.resolve(".extracted");
+        Path marker = runtimePath.resolve(".app-extracted");
         if (!Files.exists(marker)) return true;
-        // 检查 node 二进制是否存在
-        Path nodeBin = runtimePath.resolve(isWindows() ? "node-bin/node.exe" : "node-bin/bin/node");
-        return !Files.exists(nodeBin);
+        Path indexJs = runtimePath.resolve("index.js");
+        Path nodeModules = runtimePath.resolve("node_modules");
+        return !Files.exists(indexJs) || !Files.exists(nodeModules);
     }
 
-    /** 从 JAR 解压运行时到目标目录 */
-    private static void extractRuntime(String jarPath, Path runtimePath) throws Exception {
-        Files.createDirectories(runtimePath);
+    /** 从 JAR 解压 app 文件 + node_modules */
+    private static void extractAppFiles(String jarPath, Path runtimePath) throws Exception {
         try (JarFile jar = new JarFile(jarPath)) {
             Enumeration<JarEntry> entries = jar.entries();
             int count = 0;
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
                 String name = entry.getName();
-                // 只解压 runtime/ 和 app/ 下的内容
-                if (!name.startsWith("runtime/") && !name.startsWith("app/")) continue;
+                // 只解压 runtime/node_modules/ 和 app/ 下的内容
+                boolean isNodeModules = name.startsWith("runtime/node_modules/");
+                boolean isApp = name.startsWith("app/");
+                if (!isNodeModules && !isApp) continue;
                 if (entry.isDirectory()) continue;
 
-                // 计算目标路径：去掉 "runtime/" 前缀，"app/index.js" → "index.js"
+                // 计算目标路径
                 String relPath;
-                if (name.startsWith("runtime/")) {
-                    relPath = name.substring("runtime/".length());
+                if (isNodeModules) {
+                    relPath = name.substring("runtime/".length());  // 保留 node_modules/ 前缀
                 } else {
-                    relPath = name.substring("app/".length());
+                    relPath = name.substring("app/".length());  // index.js, package.json
                 }
                 Path target = runtimePath.resolve(relPath);
                 Files.createDirectories(target.getParent());
@@ -195,20 +276,11 @@ public class AoyouLauncher {
                     Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
                 }
                 count++;
-
-                // 设置可执行位（node 二进制）
-                if (relPath.equals("node-bin/bin/node") || relPath.equals("node-bin/node.exe")) {
-                    target.toFile().setExecutable(true);
-                }
             }
-            // 写入标记文件
-            Files.write(runtimePath.resolve(".extracted"),
+            // 写入标记
+            Files.write(runtimePath.resolve(".app-extracted"),
                     ("v" + VERSION + "\n" + System.currentTimeMillis() + "\n").getBytes());
             System.out.println("[Launcher] 解压文件数: " + count);
         }
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 }
