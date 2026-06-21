@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Main-Class: AoyouLauncher
+Implementation-Title: AoYou Panel
+Implementation-Version: 1.0.0
