@@ -1,0 +1,61 @@
+{
+    "_comment": "傲游面板 Pterodactyl Egg 配置文件 - 导入到翼龙面板即可使用",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-06-21T00:00:00+08:00",
+    "name": "傲游面板 (AoYou Panel)",
+    "author": "zx1447",
+    "description": "Discord项目+MC机器人多功能面板。一体化 JAR 启动，内嵌 Node.js 22 运行时。面板端口 4237，默认密码 1715。",
+    "features": null,
+    "docker_images": {
+        "Java 21": "ghcr.io/pterodactyl/yolks:java_21"
+    },
+    "file_denylist": [],
+    "startup": "java -Xms128M -Xmx512M -jar aoyou-panel.jar",
+    "config": {
+        "files": "{}",
+        "startup": {
+            "done": "✅ Diary Blog Panel started",
+            "user_interaction": null,
+            "stop": "^(Stopping|\\[Launcher\\] Node.js 退出)"
+        },
+        "logs": {
+            "custom": true,
+            "location": "logs/latest.log"
+        },
+        "stop": {
+            "command": "send Ctrl+C"
+        }
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# 傲游面板安装脚本\n\nset -e\n\necho \"=========================================\"\necho \"  傲游面板安装脚本\"\necho \"=========================================\"\necho \"\"\n\n# 1. 下载 JAR\nif [ ! -f aoyou-panel.jar ] || [ \"$1\" == \"--force\" ]; then\n    echo \"📥 下载最新版 aoyou-panel.jar...\"\n    curl -L --fail -o aoyou-panel.jar.new \\\n        https://github.com/zx1447/ixzhja/releases/latest/download/aoyou-panel.jar\n    \n    if [ $? -ne 0 ]; then\n        echo \"❌ 下载失败，请检查网络连接\"\n        exit 1\n    fi\n    \n    mv aoyou-panel.jar.new aoyou-panel.jar\n    echo \"✅ 下载完成\"\nelse\n    echo \"✅ aoyou-panel.jar 已存在，跳过下载\"\nfi\n\n# 2. 检查文件\nls -lh aoyou-panel.jar\n\n# 3. 清理旧的运行时（强制重新解压）\nif [ -d .aoyou-runtime ]; then\n    echo \"🧹 清理旧的运行时...\"\n    rm -rf .aoyou-runtime\nfi\n\necho \"\"\necho \"=========================================\"\necho \"  ✅ 安装完成\"\necho \"=========================================\"\necho \"\"\necho \"启动命令: java -jar aoyou-panel.jar\"\necho \"面板端口: 4237\"\necho \"默认密码: 1715 (首次登录后请立即修改)\"\necho \"\"\n",
+            "container": "ghcr.io/pterodactyl/installers:debian",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "服务器端口",
+            "description": "面板监听端口（翼龙面板分配的端口）",
+            "label": "Server Port",
+            "env_variable": "SERVER_PORT",
+            "default_value": "4237",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|integer|between:1024,65535"
+        },
+        {
+            "name": "JVM 最大内存",
+            "description": "Java 虚拟机最大堆内存（MB）",
+            "label": "JVM Max Memory",
+            "env_variable": "JVM_MAX_MEM",
+            "default_value": "512",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|min:128"
+        }
+    ]
+}
