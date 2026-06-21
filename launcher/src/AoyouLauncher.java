@@ -3,6 +3,8 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.jar.*;
 import java.util.concurrent.*;
+import java.util.zip.GZIPInputStream;
+import java.util.regex.Pattern;
 
 /**
  * 傲游面板一体化启动器 v1.1
@@ -32,7 +34,7 @@ public class AoyouLauncher {
     private static final String RUNTIME_DIR_NAME = ".aoyou-runtime";
     private static final String NODE_VERSION = "v22.11.0";
     private static final String NODE_DOWNLOAD_URL = 
-        "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.xz";
+        "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.gz";
 
     public static void main(String[] args) throws Exception {
         System.out.println("[Launcher] 傲游面板启动器 v" + VERSION);
@@ -173,29 +175,53 @@ public class AoyouLauncher {
             Path nodeDir = Paths.get(runtimeDir, "node");
             Files.createDirectories(nodeDir);
 
-            // 下载并解压
-            ProcessBuilder pb = new ProcessBuilder("sh", "-c",
-                "curl -L '" + NODE_DOWNLOAD_URL + "' | tar xJ --strip-components=1 -C '" + nodeDir.toString() + "'");
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
+            // 方式 1: 尝试用 curl + tar（系统命令）
+            boolean success = false;
+            if (commandExists("curl") && commandExists("tar")) {
+                System.out.println("[Launcher] 尝试用 curl + tar 解压...");
+                ProcessBuilder pb = new ProcessBuilder("sh", "-c",
+                    "curl -L '" + NODE_DOWNLOAD_URL + "' | tar xz --strip-components=1 -C '" + nodeDir.toString() + "'");
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
 
-            // 转发下载日志
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    System.out.println("  [download] " + line);
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                    String line;
+                    while ((line = r.readLine()) != null) {
+                        System.out.println("  [download] " + line);
+                    }
+                }
+                int code = p.waitFor();
+                success = (code == 0);
+                if (!success) {
+                    System.out.println("[Launcher] ⚠️ curl + tar 失败 (exit " + code + ")，尝试 Java 解压...");
                 }
             }
-            int code = p.waitFor();
-            if (code != 0) {
-                System.err.println("[Launcher] ❌ Node.js 下载失败 (exit " + code + ")");
+
+            // 方式 2: 用 Java 自带的 GZIPInputStream + TarInputStream（纯 Java 实现）
+            if (!success) {
+                System.out.println("[Launcher] 用 Java 内置工具下载解压...");
+                success = downloadAndExtractWithJava(NODE_DOWNLOAD_URL, nodeDir);
+            }
+
+            if (!success) {
+                System.err.println("[Launcher] ❌ Node.js 下载失败");
                 return null;
             }
 
             // 检查下载结果
             String nodeBin = nodeDir + "/bin/node";
             if (!new File(nodeBin).exists()) {
-                System.err.println("[Launcher] ❌ 下载完成但找不到 node 二进制");
+                System.err.println("[Launcher] ❌ 下载完成但找不到 node 二进制: " + nodeBin);
+                // 列出实际下载的文件，方便调试
+                try {
+                    File[] files = nodeDir.toFile().listFiles();
+                    if (files != null) {
+                        System.out.println("[Launcher] " + nodeDir + " 内容:");
+                        for (File f : files) {
+                            System.out.println("  - " + f.getName() + (f.isDirectory() ? "/" : ""));
+                        }
+                    }
+                } catch (Exception e) {}
                 return null;
             }
             new File(nodeBin).setExecutable(true);
@@ -213,8 +239,170 @@ public class AoyouLauncher {
             return nodeBin;
         } catch (Exception e) {
             System.err.println("[Launcher] ❌ 下载 Node.js 异常: " + e.getMessage());
+            e.printStackTrace();
             return null;
         }
+    }
+
+    /** 检查命令是否存在 */
+    private static boolean commandExists(String cmd) {
+        try {
+            Process p = new ProcessBuilder("sh", "-c", "which " + cmd + " 2>/dev/null").start();
+            p.waitFor();
+            return p.exitValue() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 纯 Java 下载 + 解压 .tar.gz（不依赖系统 tar/gzip） */
+    private static boolean downloadAndExtractWithJava(String url, Path targetDir) {
+        // 简化实现：用 curl 下载到本地文件，然后用 Java 解压
+        Path tarFile = targetDir.resolve("node.tar");
+        Path gzFile = targetDir.resolve("node.tar.gz");
+        try {
+            // 1. 用 curl 下载到文件
+            System.out.println("[Launcher] 下载 .tar.gz 文件...");
+            ProcessBuilder pb = new ProcessBuilder("sh", "-c",
+                "curl -L -o '" + gzFile.toString() + "' '" + url + "'");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    System.out.println("  [curl] " + line);
+                }
+            }
+            int code = p.waitFor();
+            if (code != 0 || !Files.exists(gzFile)) {
+                System.err.println("[Launcher] curl 下载失败 (exit " + code + ")");
+                return false;
+            }
+            System.out.println("[Launcher] 下载完成: " + Files.size(gzFile) / 1024 / 1024 + " MB");
+
+            // 2. 用 Java GZIPInputStream 解压 .gz 得到 .tar
+            System.out.println("[Launcher] 解压 gzip...");
+            try (InputStream gis = new GZIPInputStream(Files.newInputStream(gzFile));
+                 OutputStream os = Files.newOutputStream(tarFile)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = gis.read(buf)) > 0) {
+                    os.write(buf, 0, n);
+                }
+            }
+
+            // 3. 解析 .tar 文件（纯 Java 实现）
+            System.out.println("[Launcher] 解压 tar...");
+            try (InputStream is = Files.newInputStream(tarFile)) {
+                extractTar(is, targetDir);
+            }
+
+            // 4. 清理临时文件
+            Files.deleteIfExists(gzFile);
+            Files.deleteIfExists(tarFile);
+
+            return true;
+        } catch (Exception e) {
+            System.err.println("[Launcher] Java 解压失败: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /** 简单的 tar 解析（POSIX tar 格式） */
+    private static void extractTar(InputStream is, Path targetDir) throws IOException {
+        byte[] header = new byte[512];
+        int read = 0;
+        while (read < 512) {
+            int n = is.read(header, read, 512 - read);
+            if (n < 0) break;
+            read += n;
+        }
+        while (read == 512) {
+            // 检查是否是空块（全 0）
+            boolean empty = true;
+            for (int i = 0; i < 512; i++) {
+                if (header[i] != 0) { empty = false; break; }
+            }
+            if (empty) break;
+
+            // 解析 header
+            String name = new String(header, 0, 100).trim().replace("\0", "");
+            if (name.isEmpty()) break;
+            
+            // 解析 size（八进制）
+            String sizeStr = new String(header, 124, 12).trim().replace("\0", "");
+            long size = 0;
+            try { size = Long.parseLong(sizeStr, 8); } catch (Exception e) { break; }
+            
+            // 解析 typeflag（第 156 字节）
+            char type = (char) header[156];
+
+            // 去掉第一级目录名（node-v22.11.0-linux-x64/）
+            int slashIdx = name.indexOf('/');
+            String relName = (slashIdx >= 0) ? name.substring(slashIdx + 1) : name;
+            if (relName.isEmpty()) {
+                // 跳过这个 entry 的数据
+                skipFully(is, ((size + 511) / 512) * 512);
+                read = readFully(is, header, 512);
+                continue;
+            }
+
+            Path target = targetDir.resolve(relName);
+
+            if (type == '5' || name.endsWith("/")) {
+                // 目录
+                Files.createDirectories(target);
+            } else if (type == '0' || type == '\0') {
+                // 普通文件
+                Files.createDirectories(target.getParent());
+                long remaining = size;
+                try (OutputStream os = Files.newOutputStream(target)) {
+                    byte[] buf = new byte[8192];
+                    while (remaining > 0) {
+                        int toRead = (int) Math.min(buf.length, remaining);
+                        int n = is.read(buf, 0, toRead);
+                        if (n < 0) break;
+                        os.write(buf, 0, n);
+                        remaining -= n;
+                    }
+                }
+                // 可执行位（bin/ 下的文件）
+                if (relName.startsWith("bin/")) {
+                    target.toFile().setExecutable(true);
+                }
+            }
+
+            // 跳过 padding
+            long padded = ((size + 511) / 512) * 512 - size;
+            if (padded > 0) skipFully(is, (int) padded);
+
+            // 读下一个 header
+            read = readFully(is, header, 512);
+        }
+    }
+
+    private static void skipFully(InputStream is, long n) throws IOException {
+        long remaining = n;
+        while (remaining > 0) {
+            long skipped = is.skip(remaining);
+            if (skipped <= 0) {
+                if (is.read() < 0) break;
+                remaining--;
+            } else {
+                remaining -= skipped;
+            }
+        }
+    }
+
+    private static int readFully(InputStream is, byte[] buf, int len) throws IOException {
+        int read = 0;
+        while (read < len) {
+            int n = is.read(buf, read, len - read);
+            if (n < 0) break;
+            read += n;
+        }
+        return read;
     }
 
     /** 在 PATH 里查找命令 */
