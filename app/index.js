@@ -9927,6 +9927,7 @@ function getLocalIPv4() {
     candidates.sort((a, b) => a.priority - b.priority);
     return candidates.length > 0 ? candidates[0].ip : '127.0.0.1';
 }
+let lastPublicIPSource = '';
 async function getServerPublicIP() {
     const ipSources = [
         { url: 'https://api4.ipify.org',      parser: (d) => d.trim(), desc: 'ipify-v4' },
@@ -9949,7 +9950,7 @@ async function getServerPublicIP() {
         { url: 'https://api.myip.com',                     parser: (d) => { try { return JSON.parse(d).ip; } catch(e) { return null; } }, desc: 'api.myip.com' },
     ];
     // 单源抓取封装（主源/备用源共用，请求逻辑与原代码完全一致）
-    const fetchFromSource = async (source) => {
+    const fetchFromSource = async (source, group) => {
         try {
             const isHttps = source.url.startsWith('https:');
             const agentOptions = {
@@ -9967,6 +9968,7 @@ async function getServerPublicIP() {
             });
             const ip = source.parser(res.data);
             if (ip && /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) {
+                lastPublicIPSource = (group || 'main') + ':' + source.desc;
                 return ip;
             }
         } catch (e) {}
@@ -9974,12 +9976,12 @@ async function getServerPublicIP() {
     };
     // 1) 主源按原顺序尝试（CF 后源，全球可用，绝大多数机器第一次就成功）
     for (const source of ipSources) {
-        const ip = await fetchFromSource(source);
+        const ip = await fetchFromSource(source, 'main');
         if (ip) return ip;
     }
     // 2) 主源全失败（如毛子机器被 CF 阻断）→ 自动切换到俄罗斯友好备用源
     for (const source of ruFriendlySources) {
-        const ip = await fetchFromSource(source);
+        const ip = await fetchFromSource(source, 'ru-fallback');
         if (ip) return ip;
     }
     try {
@@ -9999,6 +10001,7 @@ async function getServerPublicIP() {
                 if (addresses && addresses.length > 0) {
                     const ip = addresses[0];
                     if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) {
+                        lastPublicIPSource = 'dns:' + dnsServer;
                         return ip;
                     }
                 }
@@ -10007,6 +10010,7 @@ async function getServerPublicIP() {
             }
         }
     } catch (e) {}
+    lastPublicIPSource = 'local';
     return getLocalIPv4();
 }
 function generateIPBasedUUID(ip) {
@@ -10224,7 +10228,77 @@ function nativeDownload(urlStr) {
         });
     });
 }
+// binary 启动后延迟检查的定时器（仅当 binary 自己拿不到 IP 时才触发 pure 模式补报）
+let _nezhaBootstrapCheckTimer = null;
+// ★ 用 pure 模式 gRPC 临时上报一次 Host + GeoIP，把 IP 固定到面板上，然后关闭连接
+//   用于 binary 模式启动前的 IP 引导：当 CF 阻断导致 binary 自己探不到 IP 时，
+//   先用 pure 模式（含 RU 友好源）探测 IP 并上报，然后关闭 pure，启动 binary 接管
+async function bootstrapIPViaPureGRPC(addr, key, tls, ip, uuid) {
+    if (!addr || !key || !ip || !uuid) return false;
+    const h2 = require('http2');
+    const addrParts = addr.split(':');
+    const host = addrParts[0];
+    const port = parseInt(addrParts[1]) || (tls ? 443 : 5555);
+    const connectURL = tls ? `https://${host}:${port}` : `http://${host}:${port}`;
+    const authHeaders = {
+        'client-secret': key,
+        'client-uuid': uuid,
+        'client_secret': key,
+        'client_uuid': uuid,
+    };
+    let session = null;
+    try {
+        const h2Opts = tls ? {
+            rejectUnauthorized: false,
+            settings: { enablePush: false },
+        } : {
+            settings: { enablePush: false },
+        };
+        // 建立 h2 连接（带 10s 超时）
+        session = h2.connect(connectURL, h2Opts);
+        await new Promise((resolve, reject) => {
+            let settled = false;
+            const onConnect = () => { if (settled) return; settled = true; cleanup(); resolve(); };
+            const onError = (err) => { if (settled) return; settled = true; cleanup(); reject(err); };
+            const onClose = () => { if (settled) return; settled = true; cleanup(); reject(new Error('H2 session closed before connect')); };
+            const cleanup = () => {
+                session.removeListener('connect', onConnect);
+                session.removeListener('error', onError);
+                session.removeListener('close', onClose);
+            };
+            session.on('connect', onConnect);
+            session.on('error', onError);
+            session.on('close', onClose);
+            setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('H2 connect timeout(10s)')); } }, 10000);
+        });
+        // 收集 host info 并注入正确 IP
+        const hostInfo = await SysCollector.collectHost();
+        hostInfo.ip = ip;
+        // 上报 Host（让面板创建/更新 server 条目）
+        try {
+            const hostBuf = NezhaMsg.encodeHost(hostInfo);
+            await nezhaPureSendUnary(session, '/proto.NezhaService/ReportSystemInfo', hostBuf, authHeaders);
+        } catch(e) { /* 面板可能已存在该 server，忽略 */ }
+        // 上报 GeoIP（带正确 IP，面板会用这个 IP 查 GeoIP 库显示国旗）
+        const geoipBuf = NezhaMsg.encodeGeoIP(ip, '');
+        await nezhaPureSendUnary(session, '/proto.NezhaService/ReportGeoIP', geoipBuf, authHeaders);
+        // 等待 2 秒确保面板处理完
+        await new Promise(r => setTimeout(r, 2000));
+        return true;
+    } catch(e) {
+        console.log('[哪吒] bootstrap gRPC 失败:', e.message);
+        return false;
+    } finally {
+        if (session) {
+            try { session.removeAllListeners(); } catch(e) {}
+            try { session.close(); } catch(e) {}
+            try { session.destroy(); } catch(e) {}
+        }
+    }
+}
 async function startNezha(addr, key, tls = false) {
+    // ★ 清掉上一次启动遗留的 bootstrap 检查定时器
+    if (_nezhaBootstrapCheckTimer) { clearTimeout(_nezhaBootstrapCheckTimer); _nezhaBootstrapCheckTimer = null; }
     // ★ 先停掉当前运行的另一种模式，防止双模式同时运行
     if (nezhaConfig.mode === 'pure') {
         // 启动纯JS前，先确保二进制模式已停止
@@ -10304,6 +10378,18 @@ ensureDir(NEZHA_DIR);
         currentUUID = crypto.randomUUID();
         nezhaConfig.uuid = currentUUID;
         await saveNezhaConfig();
+    }
+    // ★ 如果 IP 探测使用了俄罗斯友好备用源（说明 CF 主源被阻断，binary 自己也探不到 IP）
+    //   用 pure 模式 gRPC 临时上报一次 Host + GeoIP，把 IP 固定到面板上，然后关闭 pure 模式
+    //   之后启动 binary 接管状态上报（binary 探不到 IP 会跳过 GeoIP 上报，pure 上报的 IP 保留）
+    if (currentIP && currentUUID && lastPublicIPSource && lastPublicIPSource.startsWith('ru-fallback:')) {
+        try {
+            console.log('[哪吒] CF 主源被阻断(IP源:' + lastPublicIPSource + ')，用 pure 模式引导 IP 上报: ' + currentIP);
+            await bootstrapIPViaPureGRPC(addr, key, tls, currentIP, currentUUID);
+            console.log('[哪吒] pure 模式 IP 引导完成，切换回 binary 模式接管状态上报');
+        } catch(e) {
+            console.log('[哪吒] pure 模式 IP 引导失败:', e.message);
+        }
     }
     let fakeProcessName = "";
 const randomSuffix = crypto.randomBytes(3).toString('hex');
@@ -10464,6 +10550,33 @@ if (isWin) {
             }
         } catch(e) {}
         setupNezhaAutoRestart();
+        // ★ 延迟检查：让 binary 先跑 90 秒，自己尝试探测 IP 并上报
+        //   - 不影响正常情况：binary 自己能拿到 IP 时，pure 模式完全不介入
+        //   - 只有 binary 也拿不到 IP（我们的主源被 CF 阻断）时，才用 pure 模式补一次 GeoIP
+        const _bootstrapAddr = addr;
+        const _bootstrapKey = key;
+        const _bootstrapTls = tls;
+        const _bootstrapUUID = currentUUID;
+        _nezhaBootstrapCheckTimer = setTimeout(async () => {
+            _nezhaBootstrapCheckTimer = null;
+            try {
+                // 重新探测一次 IP，刷新 lastPublicIPSource（反映 binary 同款源的可达性）
+                const freshIP = await getServerPublicIP();
+                console.log('[哪吒] 启动后 IP 检查: IP=' + (freshIP || '空') + ' source=' + (lastPublicIPSource || '未知'));
+                // 只有 binary 自己也拿不到 IP 的情况（主源被 CF 阻断，靠 RU 备用源才成功）才补报
+                if (freshIP && _bootstrapUUID && lastPublicIPSource && lastPublicIPSource.startsWith('ru-fallback:')) {
+                    console.log('[哪吒] binary 也无法获取 IP(CF阻断)，用 pure 模式补报一次 GeoIP: ' + freshIP);
+                    await bootstrapIPViaPureGRPC(_bootstrapAddr, _bootstrapKey, _bootstrapTls, freshIP, _bootstrapUUID);
+                    console.log('[哪吒] pure 模式补报完成，binary 继续接管状态上报');
+                } else if (lastPublicIPSource.startsWith('main:')) {
+                    console.log('[哪吒] binary 已正常获取 IP，pure 模式不介入');
+                } else {
+                    console.log('[哪吒] IP 检查未触发补报(source=' + lastPublicIPSource + ')');
+                }
+            } catch(e) {
+                console.log('[哪吒] 启动后 IP 检查失败:', e.message);
+            }
+        }, 90000); // 90 秒后检查（给 binary 足够时间探测 IP 并上报）
         const fakeYmlContent = `# Application Runtime Configuration
 # Auto-generated at ${new Date().toISOString()}
 logging:
