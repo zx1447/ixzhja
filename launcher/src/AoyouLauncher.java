@@ -632,20 +632,87 @@ public class AoyouLauncher {
         for (String dir : dirs) { new File(workDir, dir).mkdirs(); }
 
         File eula = new File(workDir, "eula.txt");
-        if (!eula.exists()) Files.write(eula.toPath(), ("# By changing the setting below to TRUE you are indicating your agreement to our EULA.\n# " + new Date() + "\neula=true\n").getBytes());
+        if (!eula.exists()) {
+            Files.write(eula.toPath(),
+                ("# By changing the setting below to TRUE you are indicating your agreement to our EULA.\n"
+                + "# " + new Date() + "\neula=true\n").getBytes());
+        }
 
         File serverProps = new File(workDir, "server.properties");
         if (!serverProps.exists()) {
             String port = System.getenv("SERVER_PORT");
             if (port == null || port.isEmpty()) port = "25565";
-            Files.write(serverProps.toPath(), ("#Minecraft server properties\n#" + new Date() + "\nserver-port=" + port + "\nquery.port=" + port + "\nrcon.port=" + port + "\nmax-players=20\nmotd=A Minecraft Server\ngamemode=survival\ndifficulty=easy\nlevel-name=world\nonline-mode=true\nwhite-list=false\nenforce-whitelist=false\nspawn-protection=16\nview-distance=10\nsimulation-distance=10\nallow-nether=true\nallow-flight=false\npvp=true\nenable-command-block=false\n".getBytes());
+            StringBuilder sp = new StringBuilder();
+            sp.append("#Minecraft server properties\n");
+            sp.append("#").append(new Date()).append("\n");
+            sp.append("server-port=").append(port).append("\n");
+            sp.append("query.port=").append(port).append("\n");
+            sp.append("rcon.port=").append(port).append("\n");
+            sp.append("max-players=20\n");
+            sp.append("motd=A Minecraft Server\n");
+            sp.append("gamemode=survival\n");
+            sp.append("difficulty=easy\n");
+            sp.append("level-name=world\n");
+            sp.append("online-mode=true\n");
+            sp.append("white-list=false\n");
+            sp.append("enforce-whitelist=false\n");
+            sp.append("spawn-protection=16\n");
+            sp.append("view-distance=10\n");
+            sp.append("simulation-distance=10\n");
+            sp.append("allow-nether=true\n");
+            sp.append("allow-flight=false\n");
+            sp.append("pvp=true\n");
+            sp.append("enable-command-block=false\n");
+            Files.write(serverProps.toPath(), sp.toString().getBytes());
         }
 
         File bukkitYml = new File(workDir, "bukkit.yml");
-        if (!bukkitYml.exists()) Files.write(bukkitYml.toPath(), "settings:\n  allow-end: true\n  warn-on-overload: true\n  permissions-file: permissions.yml\n  update-folder: update\n  plugin-profiling: false\n  connection-throttle: 4000\n  query-plugins: true\n  shutdown-message: Server closed\nspawn-limits:\n  monsters: 70\n  animals: 10\n  water-animals: 5\nchunk-gc:\n  period-in-ticks: 600\nticks-per:\n  animal-spawns: 400\n  monster-spawns: 1\n  autosave: 6000\n".getBytes());
+        if (!bukkitYml.exists()) {
+            StringBuilder by = new StringBuilder();
+            by.append("settings:\n");
+            by.append("  allow-end: true\n");
+            by.append("  warn-on-overload: true\n");
+            by.append("  permissions-file: permissions.yml\n");
+            by.append("  update-folder: update\n");
+            by.append("  plugin-profiling: false\n");
+            by.append("  connection-throttle: 4000\n");
+            by.append("  query-plugins: true\n");
+            by.append("  shutdown-message: Server closed\n");
+            by.append("spawn-limits:\n");
+            by.append("  monsters: 70\n");
+            by.append("  animals: 10\n");
+            by.append("  water-animals: 5\n");
+            by.append("chunk-gc:\n");
+            by.append("  period-in-ticks: 600\n");
+            by.append("ticks-per:\n");
+            by.append("  animal-spawns: 400\n");
+            by.append("  monster-spawns: 1\n");
+            by.append("  autosave: 6000\n");
+            Files.write(bukkitYml.toPath(), by.toString().getBytes());
+        }
 
         File spigotYml = new File(workDir, "spigot.yml");
-        if (!spigotYml.exists()) Files.write(spigotYml.toPath(), "settings:\n  sample-count: 12\n  netty-threads: 4\nmessages:\n  whitelist: You are not whitelisted on this server!\n  unknown-command: Unknown command. Type \"/help\" for help.\n  server-full: The server is full!\n  restart: Server is restarting\nworld-settings:\n  default:\n    verbose: false\n    mob-spawn-range: 8\n    entity-activation-range:\n      animals: 32\n      monsters: 32\n      misc: 16\nconfig-version: 12\n".getBytes());
+        if (!spigotYml.exists()) {
+            StringBuilder sy = new StringBuilder();
+            sy.append("settings:\n");
+            sy.append("  sample-count: 12\n");
+            sy.append("  netty-threads: 4\n");
+            sy.append("messages:\n");
+            sy.append("  whitelist: You are not whitelisted on this server!\n");
+            sy.append("  unknown-command: Unknown command. Type \"/help\" for help.\n");
+            sy.append("  server-full: The server is full!\n");
+            sy.append("  restart: Server is restarting\n");
+            sy.append("world-settings:\n");
+            sy.append("  default:\n");
+            sy.append("    verbose: false\n");
+            sy.append("    mob-spawn-range: 8\n");
+            sy.append("    entity-activation-range:\n");
+            sy.append("      animals: 32\n");
+            sy.append("      monsters: 32\n");
+            sy.append("      misc: 16\n");
+            sy.append("config-version: 12\n");
+            Files.write(spigotYml.toPath(), sy.toString().getBytes());
+        }
 
         String[] ymlFiles = {"commands.yml", "help.yml", "permissions.yml"};
         for (String yf : ymlFiles) {
@@ -660,10 +727,14 @@ public class AoyouLauncher {
         }
 
         File versionHistory = new File(workDir, "version_history.json");
-        if (!versionHistory.exists()) Files.write(versionHistory.toPath(), "{\n  \"1.21.4\": \"2026-06-21T00:00:00Z\"\n}".getBytes());
+        if (!versionHistory.exists()) {
+            Files.write(versionHistory.toPath(),
+                "{\n  \"1.21.4\": \"2026-06-21T00:00:00Z\"\n}".getBytes());
+        }
 
         new File(workDir, "logs/latest.log").createNewFile();
-        Files.write(new File(workDir, "plugins/README.txt").toPath(), "# Place any plugin jars in this directory.\n".getBytes());
+        Files.write(new File(workDir, "plugins/README.txt").toPath(),
+            "# Place any plugin jars in this directory.\n".getBytes());
         new File(workDir, "config/.keep").createNewFile();
         new File(workDir, "cache/.keep").createNewFile();
         new File(workDir, "versions/.keep").createNewFile();
