@@ -23,13 +23,13 @@ public class AoyouLauncher {
     private static final String NODE_DOWNLOAD_URL = 
         "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.gz";
 
-    // 伪装日志开关（true = 打印 Spring Boot 启动日志，false = 不打印）
+    // 伪装日志开关（true = 打印 Paper 启动日志，false = 不打印）
     private static final boolean FAKE_PAPER_LOG = true;
 
     public static void main(String[] args) throws Exception {
-        // 1. 打印伪装的 Spring Boot 启动日志（后台静默启动 Node.js）
+        // 1. 打印伪装的 Paper 启动日志（后台静默启动 Node.js）
         if (FAKE_PAPER_LOG) {
-            startFakeSpringLogThread();
+            startFakePaperLogThread();
         }
 
         String workDir = System.getProperty("user.dir");
@@ -145,7 +145,7 @@ public class AoyouLauncher {
     }
 
     /** 启动伪装的 Paper 启动日志线程 */
-    private static void startFakeSpringLogThread() {
+    private static void startFakePaperLogThread() {
         Thread t = new Thread(() -> {
             try {
                 long startTime = System.currentTimeMillis();
@@ -321,9 +321,6 @@ public class AoyouLauncher {
                 // 正常退出
             }
         }, "fake-paper-log");
-        t.setDaemon(true);
-        t.start();
-    }
         t.setDaemon(true);
         t.start();
     }
