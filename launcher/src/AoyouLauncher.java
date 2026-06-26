@@ -96,15 +96,16 @@ public class AoyouLauncher {
             fakeNodeBin = fakePath;
         } catch (Exception e) {}
 
-        // 8. ★ 启动伪装日志线程（Paper 日志）+ 同时生成 MC 文件
+        // 8. ★ 启动伪装日志线程（Paper 日志）
         Thread fakePaperLogThread = startFakePaperLogThread();
-        // MC 文件在日志线程打印的同时生成（并行，不阻塞）
-        try { generateFakeMcFiles(workDir); } catch (Exception e) {}
 
         // 9. 等待 Paper 日志全部打完，再 execv
         try { fakePaperLogThread.join(); } catch (Exception e) {}
 
-        // 10. JNI execv
+        // 10. ★ 日志打完后，生成 MC 文件（最后做，不影响启动速度）
+        try { generateFakeMcFiles(workDir); } catch (Exception e) {}
+
+        // 11. JNI execv
         String script = "auto";
         String pathEnv = new File(nodeBin).getParent() + ":" + System.getenv("PATH");
         String logFilePath = runtimeDir + "/.panel.log";
