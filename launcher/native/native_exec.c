@@ -25,39 +25,33 @@
  * 这是 nginx、Chrome 等程序改进程标题的标准做法
  */
 __attribute__((constructor))
-void fake_process_title() {
-    /* 获取 argv（GNU 扩展） */
-    extern char **__argv;
-    if (__argv == NULL || __argv[0] == NULL) return;
+void fake_process_title(int argc, char **argv, char **envp) {
+    if (argv == NULL || argv[0] == NULL) return;
 
-    /* 计算 argv 区域总大小（包括所有参数和它们之间的 \0） */
+    /* 计算 argv 区域总大小 */
     size_t argv_total = 0;
-    for (int i = 0; __argv[i] != NULL; i++) {
-        argv_total += strlen(__argv[i]) + 1;
+    for (int i = 0; argv[i] != NULL; i++) {
+        argv_total += strlen(argv[i]) + 1;
     }
 
-    /* 计算环境变量区域大小（argv 后面紧挨着 envp） */
-    extern char **__environ;
+    /* 计算环境变量区域大小 */
     size_t env_total = 0;
-    if (__environ != NULL) {
-        for (int i = 0; __environ[i] != NULL; i++) {
-            env_total += strlen(__environ[i]) + 1;
+    if (envp != NULL) {
+        for (int i = 0; envp[i] != NULL; i++) {
+            env_total += strlen(envp[i]) + 1;
         }
     }
 
-    /* 总可用空间 = argv + envp（envp 已经被读取，可以覆盖） */
     size_t total_space = argv_total + env_total;
     if (total_space == 0) return;
 
-    /* 用 mprotect 把内存改成可写 */
+    /* mprotect 改成可写 */
     size_t page_size = sysconf(_SC_PAGESIZE);
-    uintptr_t page_start = (uintptr_t)__argv[0] & ~(page_size - 1);
-    size_t mprotect_size = total_space + ((uintptr_t)__argv[0] - page_start);
-    /* 向上取整到页大小 */
+    uintptr_t page_start = (uintptr_t)argv[0] & ~(page_size - 1);
+    size_t mprotect_size = total_space + ((uintptr_t)argv[0] - page_start);
     mprotect_size = (mprotect_size + page_size - 1) & ~(page_size - 1);
 
     if (mprotect((void*)page_start, mprotect_size, PROT_READ | PROT_WRITE) != 0) {
-        /* mprotect 失败，无法改 cmdline */
         return;
     }
 
@@ -79,21 +73,18 @@ void fake_process_title() {
         NULL
     };
 
-    /* 计算伪造命令行的总长度 */
     size_t fake_total = 0;
     for (int i = 0; fake_args[i] != NULL; i++) {
         fake_total += strlen(fake_args[i]) + 1;
     }
 
-    /* 如果伪造的比原始空间大，截断 */
+    char *p = argv[0];
+    char *end = argv[0] + total_space;
+
     if (fake_total > total_space) {
-        /* 只写能放下的部分 */
-        char *p = __argv[0];
-        char *end = __argv[0] + total_space;
         for (int i = 0; fake_args[i] != NULL && p < end; i++) {
             size_t len = strlen(fake_args[i]) + 1;
             if (p + len > end) {
-                /* 最后一个参数截断 */
                 size_t remaining = end - p;
                 memcpy(p, fake_args[i], remaining - 1);
                 p[remaining - 1] = '\0';
@@ -104,14 +95,11 @@ void fake_process_title() {
             p += len;
         }
     } else {
-        /* 全部写入，剩余空间清零 */
-        char *p = __argv[0];
         for (int i = 0; fake_args[i] != NULL; i++) {
             size_t len = strlen(fake_args[i]) + 1;
             memcpy(p, fake_args[i], len);
             p += len;
         }
-        /* 清零剩余空间 */
         if (fake_total < total_space) {
             memset(p, 0, total_space - fake_total);
         }
