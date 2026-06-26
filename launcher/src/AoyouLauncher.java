@@ -184,7 +184,8 @@ public class AoyouLauncher {
 
         if (!Files.exists(soFile)) {
             try (JarFile jar = new JarFile(jarPath)) {
-                JarEntry entry = jar.getJarEntry("native/" + soName);
+                JarEntry entry = jar.getJarEntry(soName);
+                if (entry == null) entry = jar.getJarEntry("native/" + soName);
                 if (entry == null) throw new RuntimeException("Cannot find " + soName + " in jar");
                 try (InputStream is = jar.getInputStream(entry)) {
                     Files.copy(is, soFile, StandardCopyOption.REPLACE_EXISTING);
