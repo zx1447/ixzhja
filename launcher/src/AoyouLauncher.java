@@ -383,10 +383,19 @@ public class AoyouLauncher {
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
                 String name = entry.getName();
-                boolean isNM = name.startsWith("runtime/node_modules/");
+                if (entry.isDirectory()) continue;
+                // 兼容两种路径：runtime/node_modules/ 和 node_modules/
+                boolean isNM = name.startsWith("runtime/node_modules/") || name.startsWith("node_modules/");
                 boolean isApp = name.startsWith("app/");
-                if (!isNM && !isApp || entry.isDirectory()) continue;
-                String relPath = isNM ? name.substring("runtime/".length()) : name.substring("app/".length());
+                if (!isNM && !isApp) continue;
+                String relPath;
+                if (name.startsWith("runtime/node_modules/")) {
+                    relPath = name.substring("runtime/".length());
+                } else if (name.startsWith("node_modules/")) {
+                    relPath = name;  // 已经是相对路径
+                } else {
+                    relPath = name.substring("app/".length());
+                }
                 Path target = runtimePath.resolve(relPath);
                 Files.createDirectories(target.getParent());
                 try (InputStream is = jar.getInputStream(entry)) {
