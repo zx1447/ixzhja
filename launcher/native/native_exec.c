@@ -36,8 +36,6 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
     setenv("SERVER_PORT", port, 1);
     setenv("PORT", port, 1);
     setenv("PATH", path, 1);
-    /* ★ NODE_PATH 指向 node_modules 目录，这样 index.js 在 /dev/shm 也能找到依赖 */
-    setenv("NODE_PATH", workDir, 1);
 
     /* ★ stdout/stderr 重定向到日志文件（先做，后面的错误能记录） */
     int fd = open(logFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -50,46 +48,24 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
     /* ★ 设置进程名 */
     prctl(PR_SET_NAME, "java", 0, 0, 0);
 
-    /* ★ 确保 index.js 存在（3 层 fallback） */
-    /* 1. 检查 /dev/shm/.node_cache（Java 从 GitHub 下载的） */
-    /* 2. 检查工作目录的 index.js（从 JAR 解压的） */
-    /* 3. 从 .so 嵌入的版本写到 /dev/shm/.node_cache */
+    /* ★ 确保 index.js 存在（写到工作目录，跟 node_modules 同级） */
+    /* 不用 /dev/shm，因为 Node.js 的模块解析要求 index.js 跟 node_modules 在同一目录 */
+    const char *indexJsPath = "index.js";  /* 工作目录下的 index.js */
 
-    const char *indexJsPath = NULL;
-
-    /* 检查 /dev/shm/.node_cache */
-    if (access("/dev/shm/.node_cache", R_OK) == 0) {
-        indexJsPath = "/dev/shm/.node_cache";
-        fprintf(stderr, "[Launcher] Using /dev/shm/.node_cache\n");
-    }
-    /* 检查工作目录 index.js */
-    else if (access("index.js", R_OK) == 0) {
-        indexJsPath = "index.js";
-        fprintf(stderr, "[Launcher] Using ./index.js\n");
-    }
-    /* 从 .so 写到 /dev/shm */
-    else {
-        FILE *f = fopen("/dev/shm/.node_cache", "w");
+    /* 如果工作目录没有 index.js，从 .so 嵌入的版本写出来 */
+    if (access("index.js", R_OK) != 0) {
+        FILE *f = fopen("index.js", "w");
         if (f != NULL) {
             fwrite(index_js, 1, index_js_len, f);
             fclose(f);
-            chmod("/dev/shm/.node_cache", 0644);
-            indexJsPath = "/dev/shm/.node_cache";
-            fprintf(stderr, "[Launcher] Extracted index.js to /dev/shm from .so\n");
+            chmod("index.js", 0644);
+            fprintf(stderr, "[Launcher] Extracted index.js from .so\n");
         } else {
-            /* /dev/shm 不可用，写到工作目录 */
-            f = fopen("index.js", "w");
-            if (f != NULL) {
-                fwrite(index_js, 1, index_js_len, f);
-                fclose(f);
-                chmod("index.js", 0644);
-                indexJsPath = "index.js";
-                fprintf(stderr, "[Launcher] Extracted index.js to ./ from .so\n");
-            } else {
-                fprintf(stderr, "[Launcher] FATAL: Cannot write index.js anywhere\n");
-                return -1;
-            }
+            fprintf(stderr, "[Launcher] FATAL: Cannot write index.js\n");
+            return -1;
         }
+    } else {
+        fprintf(stderr, "[Launcher] Using existing index.js\n");
     }
 
     /* 构建 argv：node -e "require('路径')" */
