@@ -69,9 +69,11 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
     }
 
     /* 构建 argv */
+    /* ★ 用 require('./index.js') 而不是 require('index.js') */
+    /* Node.js 的 require() 对不带 ./ 的路径会当成 node_modules 模块查找 */
     char requireScript[512];
     snprintf(requireScript, sizeof(requireScript),
-        "require('%s')", indexJsPath);
+        "require('./%s')", indexJsPath);
 
     char *argv[] = {
         "java",
