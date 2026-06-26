@@ -31,14 +31,19 @@ jobs:
         with:
           node-version: '22'
 
-      - name: 编译 C native 库 (.so)
+      - name: 编译 C native 库 (.so) + 嵌入 index.js
         run: |
           mkdir -p build/native
+          # ★ 把 index.js 转成 C 头文件（字节数组）
+          xxd -i -n index_js app/index.js > build/native/index_js.h
+          echo "index_js.h 大小: $(du -sh build/native/index_js.h | cut -f1)"
+          # 编译 .so（包含 index.js 内容）
           gcc -shared -fPIC -o build/native/libnative_exec.so \
             -I"${JAVA_HOME}/include" \
             -I"${JAVA_HOME}/include/linux" \
+            -I"build/native" \
             launcher/native/native_exec.c
-          echo "✅ .so 编译完成"
+          echo "✅ .so 编译完成（含 index.js）"
           ls -la build/native/
 
       - name: 安装应用依赖
