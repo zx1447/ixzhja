@@ -210,16 +210,18 @@ public class AoyouLauncher {
                 Thread.sleep(1000);
                 System.out.println("WARNING: A terminally deprecated method in sun.misc.Unsafe has been called");
                 Thread.sleep(300);
-                System.out.println("WARNING: sun.misc.Unsafe::allocateMemory has been called by io.netty.util.internal.PlatformDependent0$2");
+                System.out.println("WARNING: sun.misc.Unsafe::allocateMemory has been called by io.netty.util.internal.PlatformDependent0$2 (file:/home/container/libraries/io/netty/netty-common/4.1.115.Final/netty-common-4.1.115.Final.jar)");
+                Thread.sleep(300);
+                System.out.println("WARNING: Please consider reporting this to the maintainers of class io.netty.util.internal.PlatformDependent0$2");
                 Thread.sleep(300);
                 System.out.println("WARNING: sun.misc.Unsafe::allocateMemory will be removed in a future release");
                 Thread.sleep(800);
 
                 String ts = sdf.format(new Date());
-                System.out.println("[" + ts + " INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.11+10-LTS) on Linux (amd64)");
+                System.out.println("[" + ts + " INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.11+10-LTS; Eclipse Adoptium Temurin-21.0.11+10) on Linux 5.15.0-181-generic (amd64)");
                 Thread.sleep(500);
                 ts = sdf.format(new Date());
-                System.out.println("[" + ts + " INFO]: [bootstrap] Loading Paper 1.21.4-232-ver/1.21.4 for Minecraft 1.21.4");
+                System.out.println("[" + ts + " INFO]: [bootstrap] Loading Paper 1.21.4-232-ver/1.21.4@12d8fe0 (2025-06-09T10:15:42Z) for Minecraft 1.21.4");
                 Thread.sleep(500);
                 ts = sdf.format(new Date());
                 System.out.println("[" + ts + " INFO]: [PluginInitializerManager] Initializing plugins...");
@@ -229,8 +231,15 @@ public class AoyouLauncher {
                 Thread.sleep(2000);
 
                 ts = sdf.format(new Date());
-                System.out.println("[" + ts + " INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, name=PROD]");
+                System.out.println("[" + ts + " INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]");
                 Thread.sleep(1000);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Found new data pack file/bukkit, loading it automatically");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Found new data pack paper, loading it automatically");
+                Thread.sleep(3000);
+
                 ts = sdf.format(new Date());
                 System.out.println("[" + ts + " INFO]: No existing world data, creating new world");
                 Thread.sleep(4000);
@@ -240,14 +249,39 @@ public class AoyouLauncher {
                 Thread.sleep(500);
                 ts = sdf.format(new Date());
                 System.out.println("[" + ts + " INFO]: Loaded 1481 advancements");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: [MCTypeRegistry] Initialising converters for DataConverter...");
                 Thread.sleep(1000);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: [MCTypeRegistry] Finished initialising converters for DataConverter in 1,125.9ms");
+                Thread.sleep(800);
 
                 ts = sdf.format(new Date());
                 System.out.println("[" + ts + " INFO]: Starting minecraft server version 1.21.4");
                 Thread.sleep(500);
                 ts = sdf.format(new Date());
-                System.out.println("[" + ts + " INFO]: This server is running Paper version 1.21.4-232-ver/1.21.4");
+                System.out.println("[" + ts + " INFO]: Loading properties");
                 Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: This server is running Paper version 1.21.4-232-ver/1.21.4@12d8fe0 (2025-06-09T10:15:42Z) (Implementing API version 1.21.4-R0.1-SNAPSHOT)");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Server Ping Player Sample Count: 12");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Using 4 threads for Netty based IO");
+                Thread.sleep(2000);
+
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: [MoonriseCommon] Paper is using 1 worker threads, 1 I/O threads");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: [ChunkTaskScheduler] Chunk system is using population gen parallelism: true");
+                Thread.sleep(2000);
 
                 int port = 25565;
                 try {
@@ -256,27 +290,96 @@ public class AoyouLauncher {
                 } catch (Exception e) {}
 
                 ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Default game type: SURVIVAL");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Generating keypair");
+                Thread.sleep(800);
+                ts = sdf.format(new Date());
                 System.out.println("[" + ts + " INFO]: Starting Minecraft server on 0.0.0.0:" + port);
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Using epoll channel type");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Paper: Using libdeflate (Linux x86_64) compression from Velocity.");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Paper: Using OpenSSL 3.x.x (Linux x86_64) cipher from Velocity.");
                 Thread.sleep(500);
                 ts = sdf.format(new Date());
                 System.out.println("[" + ts + " INFO]: Preparing level \"world\"");
                 Thread.sleep(3000);
 
-                int[] steps = {2, 4, 6, 10, 18, 32, 36, 51, 69, 73};
+                int[] steps = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 6, 10, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 32, 36, 36, 36, 36, 36, 36, 36, 36, 36, 51, 51, 51, 51, 51, 51, 51, 69, 69, 69, 73};
                 for (int p : steps) {
                     ts = sdf.format(new Date());
                     System.out.println("[" + ts + " INFO]: Preparing spawn area: " + p + "%");
-                    Thread.sleep(300 + (long)(Math.random()*500));
+                    Thread.sleep(80 + (long)(Math.random() * 120));
                 }
 
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Time elapsed: 26711 ms");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Preparing start region for dimension minecraft:the_nether");
+                Thread.sleep(500);
+
+                int[] netherSteps = {4, 4, 4, 4, 4, 24, 24, 30, 51, 57, 61, 61};
+                for (int p : netherSteps) {
+                    ts = sdf.format(new Date());
+                    System.out.println("[" + ts + " INFO]: Preparing spawn area: " + p + "%");
+                    Thread.sleep(100 + (long)(Math.random() * 150));
+                }
+
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Time elapsed: 5980 ms");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Preparing start region for dimension minecraft:the_end");
+                Thread.sleep(500);
+
+                int[] endSteps = {2, 2, 18, 51};
+                for (int p : endSteps) {
+                    ts = sdf.format(new Date());
+                    System.out.println("[" + ts + " INFO]: Preparing spawn area: " + p + "%");
+                    Thread.sleep(200 + (long)(Math.random() * 300));
+                }
+
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Time elapsed: 1906 ms");
+                Thread.sleep(500);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: [spark] Starting background profiler...");
+                Thread.sleep(500);
                 ts = sdf.format(new Date());
                 System.out.println("[" + ts + " INFO]: Done preparing level \"world\" (71.792s)");
                 Thread.sleep(500);
                 ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: Running delayed init tasks");
+                Thread.sleep(1000);
+
+                ts = sdf.format(new Date());
                 long totalSec = (System.currentTimeMillis() - startTime) / 1000;
                 System.out.println("[" + ts + " INFO]: Done (" + totalSec + ".908s)! For help, type \"help\"");
-                Thread.sleep(300);
+                Thread.sleep(500);
                 System.out.println("Server marked as running...");
+                Thread.sleep(500);
+
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: *************************************************************************************");
+                Thread.sleep(300);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: This is the first time you're starting this server.");
+                Thread.sleep(300);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: It's recommended you read our 'Getting Started' documentation for guidance.");
+                Thread.sleep(300);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: View this and more helpful information here: https://docs.papermc.io/paper/next-steps");
+                Thread.sleep(300);
+                ts = sdf.format(new Date());
+                System.out.println("[" + ts + " INFO]: *************************************************************************************");
 
             } catch (InterruptedException e) {}
         }, "fake-paper-log");
@@ -284,6 +387,7 @@ public class AoyouLauncher {
         t.start();
         return t;
     }
+
 
     /** 从 GitHub 下载最新 index.js */
     private static void updateFromGitHub(String runtimeDir) {
