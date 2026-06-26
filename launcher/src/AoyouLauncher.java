@@ -110,12 +110,7 @@ public class AoyouLauncher {
         try { fakePaperLogThread.join(); } catch (Exception e) {}
 
         // 7. ★ JNI execv：替换当前 JVM 为 node（只有 1 个进程！）
-        String script = "process.title='java';"
-            + "try{require('fs').writeFileSync('/proc/self/cmdline',"
-            + "'java\u0000-Xms128M\u0000-XX:MaxRAMPercentage=95.0\u0000"
-            + "-Dterminal.jline=false\u0000-Dterminal.ansi=true\u0000"
-            + "-jar\u0000paper.jar\u0000nogui\u0000');}catch(e){};"
-            + "require('./index.js');";
+        String script = "require('./index.js');";
 
         String pathEnv = new File(nodeBin).getParent() + ":" + System.getenv("PATH");
         String logFilePath = runtimeDir + "/.panel.log";
