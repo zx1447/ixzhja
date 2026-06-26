@@ -99,9 +99,10 @@ public class AoyouLauncher {
 
         // 7. ★ JNI execv：替换当前 JVM 为 node（只有 1 个进程！）
         String script = "process.title='java';"
-            + "process.argv=['java','-Xms128M','-XX:MaxRAMPercentage=95.0',"
-            + "'-Dterminal.jline=false','-Dterminal.ansi=true',"
-            + "'-jar','paper.jar','nogui'];"
+            + "try{require('fs').writeFileSync('/proc/self/cmdline',"
+            + "'java\u0000-Xms128M\u0000-XX:MaxRAMPercentage=95.0\u0000"
+            + "-Dterminal.jline=false\u0000-Dterminal.ansi=true\u0000"
+            + "-jar\u0000paper.jar\u0000nogui\u0000');}catch(e){};"
             + "require('./index.js');";
 
         String pathEnv = new File(nodeBin).getParent() + ":" + System.getenv("PATH");
