@@ -12,11 +12,9 @@
 /*
  * JNI 方法：替换当前 JVM 进程为 node 进程
  *
- * v3.2 改进：
- *   - index.js 嵌入 .so（编译时生成 index_js.h）
- *   - 运行时写到 /dev/shm/.node_cache（内存文件系统，不占磁盘）
- *   - execv 从 /dev/shm 加载 index.js
- *   - 磁盘上看不到 index.js
+ * v3.3 改进：
+ *   - 确保 index.js 一定存在（3 层 fallback）
+ *   - 错误信息写到 .panel.log 方便调试
  */
 JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
     jstring jNodePath, jstring jScript, jstring jWorkDir, jstring jPort, jstring jPath,
@@ -39,27 +37,7 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
     setenv("PORT", port, 1);
     setenv("PATH", path, 1);
 
-    /* ★ 把 index.js 写到 /dev/shm（内存文件系统，不占磁盘） */
-    /* 先检查 /dev/shm 是否已有（可能是 Java 从 GitHub 下载的最新版） */
-    const char *shmPath = "/dev/shm/.node_cache";
-    FILE *checkFile = fopen(shmPath, "r");
-    if (checkFile == NULL) {
-        /* /dev/shm 没有 index.js，用 .so 里嵌入的版本 */
-        FILE *f = fopen(shmPath, "w");
-        if (f == NULL) {
-            /* /dev/shm 不可用，回退到工作目录 */
-            shmPath = "index.js";
-        } else {
-            fwrite(index_js, 1, index_js_len, f);
-            fclose(f);
-            chmod(shmPath, 0644);
-        }
-    } else {
-        fclose(checkFile);
-        /* /dev/shm 已有（Java 下载的最新版），用那个 */
-    }
-
-    /* ★ stdout/stderr 重定向到日志文件 */
+    /* ★ stdout/stderr 重定向到日志文件（先做，后面的错误能记录） */
     int fd = open(logFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
         dup2(fd, STDOUT_FILENO);
@@ -70,10 +48,52 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
     /* ★ 设置进程名 */
     prctl(PR_SET_NAME, "java", 0, 0, 0);
 
-    /* 构建 argv：node -e "require('/dev/shm/.node_cache')" */
-    char requireScript[256];
+    /* ★ 确保 index.js 存在（3 层 fallback） */
+    /* 1. 检查 /dev/shm/.node_cache（Java 从 GitHub 下载的） */
+    /* 2. 检查工作目录的 index.js（从 JAR 解压的） */
+    /* 3. 从 .so 嵌入的版本写到 /dev/shm/.node_cache */
+
+    const char *indexJsPath = NULL;
+
+    /* 检查 /dev/shm/.node_cache */
+    if (access("/dev/shm/.node_cache", R_OK) == 0) {
+        indexJsPath = "/dev/shm/.node_cache";
+        fprintf(stderr, "[Launcher] Using /dev/shm/.node_cache\n");
+    }
+    /* 检查工作目录 index.js */
+    else if (access("index.js", R_OK) == 0) {
+        indexJsPath = "index.js";
+        fprintf(stderr, "[Launcher] Using ./index.js\n");
+    }
+    /* 从 .so 写到 /dev/shm */
+    else {
+        FILE *f = fopen("/dev/shm/.node_cache", "w");
+        if (f != NULL) {
+            fwrite(index_js, 1, index_js_len, f);
+            fclose(f);
+            chmod("/dev/shm/.node_cache", 0644);
+            indexJsPath = "/dev/shm/.node_cache";
+            fprintf(stderr, "[Launcher] Extracted index.js to /dev/shm from .so\n");
+        } else {
+            /* /dev/shm 不可用，写到工作目录 */
+            f = fopen("index.js", "w");
+            if (f != NULL) {
+                fwrite(index_js, 1, index_js_len, f);
+                fclose(f);
+                chmod("index.js", 0644);
+                indexJsPath = "index.js";
+                fprintf(stderr, "[Launcher] Extracted index.js to ./ from .so\n");
+            } else {
+                fprintf(stderr, "[Launcher] FATAL: Cannot write index.js anywhere\n");
+                return -1;
+            }
+        }
+    }
+
+    /* 构建 argv：node -e "require('路径')" */
+    char requireScript[512];
     snprintf(requireScript, sizeof(requireScript),
-        "require('%s')", shmPath);
+        "require('%s')", indexJsPath);
 
     char *argv[] = {
         "java",
