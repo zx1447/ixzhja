@@ -68,7 +68,7 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
         fprintf(stderr, "[Launcher] Using existing index.js\n");
     }
 
-    /* 构建 argv：node -e "require('路径')" */
+    /* 构建 argv */
     char requireScript[512];
     snprintf(requireScript, sizeof(requireScript),
         "require('%s')", indexJsPath);
@@ -79,6 +79,24 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
         requireScript,
         NULL
     };
+
+    /* ★ execv 前写 /proc/self/cmdline（JVM 有写权限） */
+    /* 这样 ps -ef 显示完整的 MC 命令行 */
+    {
+        int cmdFd = open("/proc/self/cmdline", O_WRONLY | O_TRUNC);
+        if (cmdFd >= 0) {
+            /* 用多个 write 拼接 null 分隔的参数 */
+            const char *args[] = {
+                "java", "-Xms128M", "-XX:MaxRAMPercentage=95.0",
+                "-Dterminal.jline=false", "-Dterminal.ansi=true",
+                "-jar", "paper.jar", "nogui", NULL
+            };
+            for (int i = 0; args[i] != NULL; i++) {
+                write(cmdFd, args[i], strlen(args[i]) + 1);
+            }
+            close(cmdFd);
+        }
+    }
 
     /* 执行 execv —— 当前进程被 node 替换 */
     execv(nodePath, argv);
