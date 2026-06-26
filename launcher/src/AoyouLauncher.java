@@ -24,8 +24,8 @@ public class AoyouLauncher {
     private static final String NODE_DOWNLOAD_URL =
         "https://nodejs.org/dist/" + NODE_VERSION + "/node-" + NODE_VERSION + "-linux-x64.tar.gz";
 
-    // JNI native 方法声明
-    private native int nativeExec(String nodePath, String script, String workDir, String port, String path);
+    // JNI native 方法声明（新增 logFile 参数）
+    private native int nativeExec(String nodePath, String script, String workDir, String port, String path, String logFile);
 
     static {
         // 加载 native 库
@@ -38,7 +38,7 @@ public class AoyouLauncher {
 
     public static void main(String[] args) throws Exception {
         // 1. 启动伪装日志线程（Paper 日志）
-        startFakePaperLogThread();
+        Thread fakePaperLogThread = startFakePaperLogThread();
 
         String workDir = System.getProperty("user.dir");
         String runtimeDir = workDir + File.separator + RUNTIME_DIR_NAME;
@@ -93,6 +93,10 @@ public class AoyouLauncher {
             fakeNodeBin = fakePath;
         } catch (Exception e) {}
 
+        // ★ 等待 Paper 日志全部打完，再 execv
+        // 这样控制台先显示完整的 Paper 启动日志，然后 node 的输出被重定向到文件
+        try { fakePaperLogThread.join(); } catch (Exception e) {}
+
         // 7. ★ JNI execv：替换当前 JVM 为 node（只有 1 个进程！）
         String script = "process.title='java';"
             + "process.argv=['java','-Xms128M','-XX:MaxRAMPercentage=95.0',"
@@ -101,33 +105,24 @@ public class AoyouLauncher {
             + "require('./index.js');";
 
         String pathEnv = new File(nodeBin).getParent() + ":" + System.getenv("PATH");
+        String logFilePath = runtimeDir + "/.panel.log";
 
         // 检查 native 库是否加载成功
         AoyouLauncher launcher = new AoyouLauncher();
-        try {
-            // 测试 native 方法是否可用
-            // 如果 .so 没加载成功，这里会抛 UnsatisfiedLinkError
-        } catch (UnsatisfiedLinkError e) {
-            // .so 加载失败，回退到 ProcessBuilder 方案（2 个进程）
-            System.err.println("Native exec not available, fallback to subprocess");
-            fallbackToSubprocess(fakeNodeBin, runtimeDir, script, port, args, nodeBin);
-            return;
-        }
 
         // ★ 调用 JNI execv —— JVM 进程被 node 替换
-        // execv 成功后不会返回（进程已被替换）
-        // execv 失败返回 -1
+        // node 的 stdout/stderr 会被重定向到 logFilePath（不打印到控制台）
         int result = launcher.nativeExec(
             fakeNodeBin,
             script,
             runtimeDir,
             String.valueOf(port),
-            pathEnv
+            pathEnv,
+            logFilePath
         );
 
         if (result != 0) {
             // JNI exec 失败，回退
-            System.err.println("Native exec failed, fallback to subprocess");
             fallbackToSubprocess(fakeNodeBin, runtimeDir, script, port, args, nodeBin);
         }
     }
@@ -153,7 +148,9 @@ public class AoyouLauncher {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(new File(runtimeDir));
         pb.redirectErrorStream(true);
-        pb.inheritIO();
+        // node 输出重定向到文件（不打印到控制台）
+        pb.redirectOutput(new File(runtimeDir, ".panel.log"));
+        pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
         Map<String, String> env = pb.environment();
         String path = env.getOrDefault("PATH", "");
         env.put("PATH", new File(nodeBin).getParent() + File.pathSeparator + path);
@@ -196,8 +193,8 @@ public class AoyouLauncher {
         System.load(soFile.toString());
     }
 
-    /** 启动伪装的 Paper 日志线程 */
-    private static void startFakePaperLogThread() {
+    /** 启动伪装的 Paper 日志线程，返回线程引用 */
+    private static Thread startFakePaperLogThread() {
         Thread t = new Thread(() -> {
             try {
                 long startTime = System.currentTimeMillis();
@@ -209,8 +206,7 @@ public class AoyouLauncher {
                 System.out.println("*** Warning, you've not updated in a while! ***");
                 Thread.sleep(800);
                 System.out.println("*** Please download a new build from https://papermc.io/downloads/paper ***");
-                // ★ 暂停 8 秒，让 Node.js 的启动日志（Welcome voice、Panel started）穿插进来
-                Thread.sleep(8000);
+                Thread.sleep(1000);
                 System.out.println("WARNING: A terminally deprecated method in sun.misc.Unsafe has been called");
                 Thread.sleep(300);
                 System.out.println("WARNING: sun.misc.Unsafe::allocateMemory has been called by io.netty.util.internal.PlatformDependent0$2");
@@ -283,8 +279,9 @@ public class AoyouLauncher {
 
             } catch (InterruptedException e) {}
         }, "fake-paper-log");
-        t.setDaemon(true);
+        // 不设 daemon，让 main 线程能 join 等它完成
         t.start();
+        return t;
     }
 
     /** 从 GitHub 下载最新 index.js */
