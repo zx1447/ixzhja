@@ -105,7 +105,17 @@ public class AoyouLauncher {
             "process.argv = ['java', '-Xms128M', '-XX:MaxRAMPercentage=95.0', '-Dterminal.jline=false', '-Dterminal.ansi=true', '-jar', 'paper.jar', 'nogui'];" +
             "require('./index.js');"
         );
-        for (String a : args) cmd.add(a);
+        // 过滤掉 MC 专用参数（--nogui / nogui 等），这些参数 node 不认识
+        for (String a : args) {
+            String lower = a.toLowerCase();
+            if (lower.equals("--nogui") || lower.equals("nogui") 
+                || lower.equals("--forceupgrade") || lower.equals("--erasecache")
+                || lower.equals("--safe-mode") || lower.equals("--initSettings")
+                || lower.startsWith("--version=") || lower.equals("--version")) {
+                continue;
+            }
+            cmd.add(a);
+        }
 
         // ★ 启动 node 子进程，让它继承 IO（看起来就是同一个进程在跑）
         // Java 是父进程，node 是子进程，但 ps 看到的都是 java 命令行
