@@ -1,4 +1,4 @@
-name: Build All-in-One JAR
+name: Build JNI All-in-One JAR
 
 on:
   push:
@@ -8,8 +8,6 @@ on:
       - 'launcher/**'
       - '.github/workflows/build.yml'
   workflow_dispatch:
-  release:
-    types: [published]
 
 permissions:
   contents: write
@@ -28,10 +26,20 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: 设置 Node.js 22（仅用于 npm install）
+      - name: 设置 Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: 编译 C native 库 (.so)
+        run: |
+          mkdir -p build/native
+          gcc -shared -fPIC -o build/native/libnative_exec.so \
+            -I"${JAVA_HOME}/include" \
+            -I"${JAVA_HOME}/include/linux" \
+            launcher/native/native_exec.c
+          echo "✅ .so 编译完成"
+          ls -la build/native/
 
       - name: 安装应用依赖
         run: |
@@ -39,47 +47,42 @@ jobs:
           npm install --omit=dev --no-audit --no-fund --no-progress
           mkdir -p runtime
           mv node_modules runtime/
-          # 精简 node_modules 体积
           cd runtime/node_modules
           find . -type f -name "*.md" -delete 2>/dev/null || true
-          find . -type f -name "*.markdown" -delete 2>/dev/null || true
-          find . -type f -name "CHANGELOG*" -delete 2>/dev/null || true
-          find . -type f -name "LICENSE*" -delete 2>/dev/null || true
           find . -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
-          find . -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
           find . -type d -name "docs" -exec rm -rf {} + 2>/dev/null || true
-          find . -type d -name "examples" -exec rm -rf {} + 2>/dev/null || true
-          find . -type d -name ".github" -exec rm -rf {} + 2>/dev/null || true
           cd ../..
           echo "node_modules 体积: $(du -sh runtime/node_modules | cut -f1)"
 
       - name: 编译 Java 启动器
         run: |
-          mkdir -p build
-          javac -d build launcher/src/AoyouLauncher.java
-          mkdir -p build/META-INF
-          cp launcher/META-INF/MANIFEST.MF build/META-INF/
+          mkdir -p build/classes
+          javac -d build/classes -h build/native launcher/src/AoyouLauncher.java
+          mkdir -p build/classes/META-INF
+          echo "Manifest-Version: 1.0" > build/classes/META-INF/MANIFEST.MF
+          echo "Main-Class: AoyouLauncher" >> build/classes/META-INF/MANIFEST.MF
 
-      - name: 构建 All-in-One JAR（含完整目录结构）
+      - name: 构建 All-in-One JAR
         run: |
-          cd build
-          jar cfm ../aoyou-panel.jar META-INF/MANIFEST.MF *.class
-          cd ..
-          # 保留 app/ 和 runtime/ 前缀（不能用 -C，否则前缀丢失）
+          cd build/classes
+          jar cfm ../../aoyou-panel.jar META-INF/MANIFEST.MF *.class
+          cd ../..
+          # 打包 .so 到 JAR
+          jar uf aoyou-panel.jar -C build/native libnative_exec.so
+          # 打包 app/
           jar uf aoyou-panel.jar app/index.js app/package.json
-          jar uf aoyou-panel.jar runtime/node_modules
+          # 打包 node_modules
+          jar uf aoyou-panel.jar -C runtime node_modules
           echo "=============================="
           ls -lh aoyou-panel.jar
           echo "=============================="
-          echo "JAR 内容（前 30 项）:"
-          jar tf aoyou-panel.jar | head -30
+          echo "JAR 内容:"
+          jar tf aoyou-panel.jar | head -20
           echo "..."
           echo "JAR 总文件数: $(jar tf aoyou-panel.jar | wc -l)"
           echo ""
-          echo "=== 验证关键文件 ==="
-          jar tf aoyou-panel.jar | grep "^app/index.js" && echo "✅ app/index.js 存在" || echo "❌ app/index.js 缺失"
-          jar tf aoyou-panel.jar | grep "^app/package.json" && echo "✅ app/package.json 存在" || echo "❌ app/package.json 缺失"
-          jar tf aoyou-panel.jar | grep "^runtime/node_modules" | head -1 && echo "✅ runtime/node_modules 存在" || echo "❌ runtime/node_modules 缺失"
+          echo "=== 验证 .so 在 JAR 里 ==="
+          jar tf aoyou-panel.jar | grep "libnative_exec.so" && echo "✅ .so 存在" || echo "❌ .so 缺失"
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
@@ -94,38 +97,22 @@ jobs:
         with:
           files: aoyou-panel.jar
           tag_name: latest
-          name: "傲游面板 (Latest)"
+          name: "傲游面板 JNI 版 (Latest)"
           body: |
-            ## 傲游面板一体化 JAR
+            ## 傲游面板 JNI 版 v3.0
+
+            ### 核心改进：JNI execv
+            - 只有 1 个进程（JVM 被 node 替换，PID 不变）
+            - 节省 ~150MB 内存
+            - 进程伪装成 java
 
             ### 使用方法
             1. 下载 `aoyou-panel.jar`
             2. 启动: `java -jar aoyou-panel.jar`
-            3. 访问: http://localhost:4237
-            4. 默认密码: `1715`
+            3. 默认密码: `1715`
 
-            ### 工作原理
-            JAR 内含 node_modules + index.js，**不含 Node.js 运行时**。
-            - 首次启动时自动检测系统是否已安装 `node`
-            - 已安装 → 直接使用系统 Node.js
-            - 未安装 → 自动下载 Node.js 22 到 `.aoyou-runtime/node/`（仅首次约 30 秒）
-            - 后续启动直接用缓存，秒级启动
-
-            ### 翼龙面板配置
-            - Startup: `java -Xms128M -Xmx512M -jar aoyou-panel.jar`
-            - Image: `ghcr.io/pterodactyl/yolks:java_21`
-            - Install Script:
-              ```bash
-              #!/bin/bash
-              curl -L -o aoyou-panel.jar https://github.com/zx1447/ixzhja/releases/latest/download/aoyou-panel.jar
-              ```
-
-            ### 系统要求
-            - OS: Linux x64
-            - Java: 21+
-            - 内存: ≥ 512MB
-            - 磁盘: ≥ 500MB（首次启动会下载 Node.js ~45MB 到 .aoyou-runtime/）
-            - 网络: 首次启动需要访问 nodejs.org
+            ### 自动更新
+            启动时自动从 GitHub 下载最新 index.js
           draft: false
           prerelease: false
         env:
