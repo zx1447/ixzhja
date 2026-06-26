@@ -604,6 +604,7 @@ public class AoyouLauncher {
     }
 
     private static void generateFakeMcFiles(String workDir) throws IOException {
+        // 1. 创建所有目录
         String[] dirs = {"cache", "config", "libraries", "logs", "plugins", "versions",
                          "world", "world_nether", "world_the_end",
                          "world/data", "world/playerdata", "world/region",
@@ -611,26 +612,277 @@ public class AoyouLauncher {
                          "world_the_end/data", "world_the_end/region"};
         for (String dir : dirs) new File(workDir, dir).mkdirs();
 
+        // 2. eula.txt
         File eula = new File(workDir, "eula.txt");
-        if (!eula.exists()) Files.write(eula.toPath(), ("# EULA agreement\n# " + new Date() + "\neula=true\n").getBytes());
+        if (!eula.exists()) {
+            StringBuilder el = new StringBuilder();
+            el.append("# By changing the setting below to TRUE you are indicating your agreement to our EULA (https://aka.ms/MinecraftEULA).\n");
+            el.append("# " + new Date() + "\n");
+            el.append("eula=true\n");
+            Files.write(eula.toPath(), el.toString().getBytes());
+        }
 
+        // 3. server.properties（完整官方默认配置）
         File sp = new File(workDir, "server.properties");
         if (!sp.exists()) {
             String port = System.getenv("SERVER_PORT");
             if (port == null || port.isEmpty()) port = "25565";
             StringBuilder sb = new StringBuilder();
-            sb.append("#Minecraft server properties\nserver-port=").append(port).append("\n");
-            sb.append("max-players=20\nmotd=A Minecraft Server\ngamemode=survival\n");
-            sb.append("difficulty=easy\nlevel-name=world\nonline-mode=true\n");
+            sb.append("#Minecraft server properties\n");
+            sb.append("#" + new Date() + "\n");
+            sb.append("accepts-transfers=false\n");
+            sb.append("allow-flight=false\n");
+            sb.append("allow-nether=true\n");
+            sb.append("broadcast-console-to-ops=true\n");
+            sb.append("broadcast-rcon-to-ops=true\n");
+            sb.append("bug-report-link=\n");
+            sb.append("difficulty=easy\n");
+            sb.append("enable-command-block=false\n");
+            sb.append("enable-jmx-monitoring=false\n");
+            sb.append("enable-query=false\n");
+            sb.append("enable-rcon=false\n");
+            sb.append("enable-status=true\n");
+            sb.append("enforce-secure-profile=true\n");
+            sb.append("enforce-whitelist=false\n");
+            sb.append("entity-broadcast-range-percentage=100\n");
+            sb.append("force-gamemode=false\n");
+            sb.append("function-permission-level=2\n");
+            sb.append("gamemode=survival\n");
+            sb.append("generate-structures=true\n");
+            sb.append("generator-settings={}\n");
+            sb.append("hardcore=false\n");
+            sb.append("hide-online-players=false\n");
+            sb.append("initial-disabled-packs=\n");
+            sb.append("initial-enabled-packs=vanilla\n");
+            sb.append("level-name=world\n");
+            sb.append("level-seed=\n");
+            sb.append("level-type=minecraft\\:normal\n");
+            sb.append("log-ips=true\n");
+            sb.append("max-chained-neighbor-updates=1000000\n");
+            sb.append("max-players=20\n");
+            sb.append("max-tick-time=60000\n");
+            sb.append("max-world-size=29999984\n");
+            sb.append("motd=A Minecraft Server\n");
+            sb.append("network-compression-threshold=256\n");
+            sb.append("online-mode=true\n");
+            sb.append("op-permission-level=4\n");
+            sb.append("player-idle-timeout=0\n");
+            sb.append("prevent-proxy-connections=false\n");
+            sb.append("pvp=true\n");
+            sb.append("query.port=").append(port).append("\n");
+            sb.append("rate-limit=0\n");
+            sb.append("rcon.password=\n");
+            sb.append("rcon.port=").append(port).append("\n");
+            sb.append("region-file-compression=deflate\n");
+            sb.append("require-resource-pack=false\n");
+            sb.append("resource-pack=\n");
+            sb.append("resource-pack-id=\n");
+            sb.append("resource-pack-prompt=\n");
+            sb.append("resource-pack-sha1=\n");
+            sb.append("server-ip=\n");
+            sb.append("server-port=").append(port).append("\n");
+            sb.append("simulation-distance=10\n");
+            sb.append("spawn-animals=true\n");
+            sb.append("spawn-monsters=true\n");
+            sb.append("spawn-npcs=true\n");
+            sb.append("spawn-protection=16\n");
+            sb.append("sync-chunk-writes=true\n");
+            sb.append("text-filtering-config=\n");
+            sb.append("text-filtering-version=0\n");
+            sb.append("use-native-transport=true\n");
+            sb.append("view-distance=10\n");
+            sb.append("white-list=false\n");
             Files.write(sp.toPath(), sb.toString().getBytes());
         }
 
-        String[] jsonFiles = {"banned-ips.json", "banned-players.json", "ops.json", "usercache.json", "whitelist.json"};
-        for (String jf : jsonFiles) { File f = new File(workDir, jf); if (!f.exists()) Files.write(f.toPath(), "[]".getBytes()); }
+        // 4. bukkit.yml（完整官方默认配置）
+        File bukkit = new File(workDir, "bukkit.yml");
+        if (!bukkit.exists()) {
+            StringBuilder by = new StringBuilder();
+            by.append("# This is the main configuration file for Bukkit.\n");
+            by.append("# As you can see, there's actually not that much to configure without any plugins.\n");
+            by.append("# For a reference for any variable inside this file, check out the Bukkit Wiki at\n");
+            by.append("# https://bukkit.fandom.com/wiki/Main_Page\n");
+            by.append("\n");
+            by.append("settings:\n");
+            by.append("  allow-end: true\n");
+            by.append("  warn-on-overload: true\n");
+            by.append("  permissions-file: permissions.yml\n");
+            by.append("  update-folder: update\n");
+            by.append("  plugin-profiling: false\n");
+            by.append("  connection-throttle: 4000\n");
+            by.append("  query-plugins: true\n");
+            by.append("  deprecated-verbose: true\n");
+            by.append("  shutdown-message: Server closed\n");
+            by.append("  minimum-api: none\n");
+            by.append("  use-map-convert-cache: true\n");
+            by.append("spawn-limits:\n");
+            by.append("  monsters: 70\n");
+            by.append("  animals: 10\n");
+            by.append("  water-animals: 5\n");
+            by.append("  water-ambient: 20\n");
+            by.append("  ambient: 15\n");
+            by.append("chunk-gc:\n");
+            by.append("  period-in-ticks: 600\n");
+            by.append("ticks-per:\n");
+            by.append("  animal-spawns: 400\n");
+            by.append("  monster-spawns: 1\n");
+            by.append("  water-spawns: 1\n");
+            by.append("  ambient-spawns: 1\n");
+            by.append("  autosave: 6000\n");
+            by.append("aliases: now-in-commands.yml\n");
+            Files.write(bukkit.toPath(), by.toString().getBytes());
+        }
 
+        // 5. spigot.yml（完整官方默认配置）
+        File spigot = new File(workDir, "spigot.yml");
+        if (!spigot.exists()) {
+            StringBuilder sy = new StringBuilder();
+            sy.append("# This is the main configuration file for Spigot.\n");
+            sy.append("# As you can see, there's actually not that much to configure without any plugins.\n");
+            sy.append("\n");
+            sy.append("settings:\n");
+            sy.append("  save-user-cache-on-stop-only: false\n");
+            sy.append("  bungeecord: false\n");
+            sy.append("  log-villager-deaths: true\n");
+            sy.append("  log-named-deaths: true\n");
+            sy.append("  sample-count: 12\n");
+            sy.append("  player-shuffle: 0\n");
+            sy.append("  moved-wrongly-threshold: 0.0625\n");
+            sy.append("  moved-too-quickly-multiplier: 10.0\n");
+            sy.append("  netty-threads: 4\n");
+            sy.append("  attribute:\n");
+            sy.append("    maxHealth:\n");
+            sy.append("      max: 2048.0\n");
+            sy.append("    movementSpeed:\n");
+            sy.append("      max: 2048.0\n");
+            sy.append("    attackDamage:\n");
+            sy.append("      max: 2048.0\n");
+            sy.append("messages:\n");
+            sy.append("  whitelist: You are not whitelisted on this server!\n");
+            sy.append("  unknown-command: Unknown command. Type \\\"/help\\\" for help.\n");
+            sy.append("  server-full: The server is full!\n");
+            sy.append("  outdated-client: Outdated client! Please use {0}\n");
+            sy.append("  outdated-server: Outdated server! I'm still on {0}\n");
+            sy.append("  restart: Server is restarting\n");
+            sy.append("commands:\n");
+            sy.append("  replace-commands:\n");
+            sy.append("  - setblock\n");
+            sy.append("  - summon\n");
+            sy.append("  - testforblock\n");
+            sy.append("  - tellraw\n");
+            sy.append("  log: true\n");
+            sy.append("  tab-complete: 0\n");
+            sy.append("  send-namespaced: true\n");
+            sy.append("world-settings:\n");
+            sy.append("  default:\n");
+            sy.append("    verbose: false\n");
+            sy.append("    merge-radius:\n");
+            sy.append("      item: 2.5\n");
+            sy.append("      exp: 3.0\n");
+            sy.append("    item-despawn-rate: 6000\n");
+            sy.append("    arrow-despawn-rate: 1200\n");
+            sy.append("    trident-despawn-rate: 1200\n");
+            sy.append("    zombie-aggressive-towards-villager: true\n");
+            sy.append("    nerf-spawner-mobs: false\n");
+            sy.append("    enable-zombie-pigmen-portal-spawns: true\n");
+            sy.append("    wither-spawn-sound-radius: 0\n");
+            sy.append("    end-portal-sound-radius: 0\n");
+            sy.append("    hanging-tick-frequency: 100\n");
+            sy.append("    mob-spawn-range: 8\n");
+            sy.append("    simulation-distance: default\n");
+            sy.append("    view-distance: default\n");
+            sy.append("    entity-activation-range:\n");
+            sy.append("      animals: 32\n");
+            sy.append("      monsters: 32\n");
+            sy.append("      raiders: 48\n");
+            sy.append("      misc: 16\n");
+            sy.append("      water: 16\n");
+            sy.append("      flying-monsters: 32\n");
+            sy.append("    entity-tracking-range:\n");
+            sy.append("      players: 48\n");
+            sy.append("      animals: 48\n");
+            sy.append("      monsters: 48\n");
+            sy.append("      misc: 32\n");
+            sy.append("      other: 64\n");
+            sy.append("    ticks-per:\n");
+            sy.append("      hopper-transfer: 8\n");
+            sy.append("      hopper-check: 1\n");
+            sy.append("    hopper-amount: 1\n");
+            sy.append("    hopper-can-load-chunks: false\n");
+            sy.append("    max-tnt-per-tick: 100\n");
+            sy.append("    max-tick-time:\n");
+            sy.append("      tile: 50\n");
+            sy.append("      entity: 50\n");
+            sy.append("config-version: 12\n");
+            Files.write(spigot.toPath(), sy.toString().getBytes());
+        }
+
+        // 6. commands.yml
+        File cmd = new File(workDir, "commands.yml");
+        if (!cmd.exists()) {
+            StringBuilder cy = new StringBuilder();
+            cy.append("# This is the commands configuration file for Bukkit.\n");
+            cy.append("# For documentation on how to make use of this file, check out the Bukkit Wiki at\n");
+            cy.append("# https://bukkit.fandom.com/wiki/Commands.yml\n");
+            cy.append("\n");
+            cy.append("command-block-overrides: []\n");
+            cy.append("aliases:\n");
+            cy.append("  icanhasbukkit:\n");
+            cy.append("  - \"version\"\n");
+            Files.write(cmd.toPath(), cy.toString().getBytes());
+        }
+
+        // 7. help.yml
+        File help = new File(workDir, "help.yml");
+        if (!help.exists()) {
+            StringBuilder hy = new StringBuilder();
+            hy.append("# This is the help configuration file for Bukkit.\n");
+            hy.append("\n");
+            hy.append("general:\n");
+            hy.append("  test: false\n");
+            hy.append("  max-per-page: -1\n");
+            hy.append("  full-list: false\n");
+            hy.append("  title: 'Minecraft Help'\n");
+            hy.append("  command-prefix: '/'\n");
+            Files.write(help.toPath(), hy.toString().getBytes());
+        }
+
+        // 8. permissions.yml
+        File perms = new File(workDir, "permissions.yml");
+        if (!perms.exists()) {
+            StringBuilder py = new StringBuilder();
+            py.append("# This is the permissions configuration file for Bukkit.\n");
+            py.append("# For documentation on how to make use of this file, check out the Bukkit Wiki at\n");
+            py.append("# https://bukkit.fandom.com/wiki/Permissions.yml\n");
+            py.append("\n");
+            py.append("default:\n");
+            py.append("  default: true\n");
+            Files.write(perms.toPath(), py.toString().getBytes());
+        }
+
+        // 9. JSON 文件（空数组）
+        String[] jsonFiles = {"banned-ips.json", "banned-players.json", "ops.json", "usercache.json", "whitelist.json"};
+        for (String jf : jsonFiles) {
+            File f = new File(workDir, jf);
+            if (!f.exists()) Files.write(f.toPath(), "[]".getBytes());
+        }
+
+        // 10. version_history.json
+        File vh = new File(workDir, "version_history.json");
+        if (!vh.exists()) {
+            String ts = new Date().toInstant().toString();
+            StringBuilder vhb = new StringBuilder();
+            vhb.append("{\n");
+            vhb.append("  \"1.21.4\": \"").append(ts).append("\"\n");
+            vhb.append("}");
+            Files.write(vh.toPath(), vhb.toString().getBytes());
+        }
+
+        // 11. logs/latest.log
         new File(workDir, "logs/latest.log").createNewFile();
 
-        // ★ plugins 目录伪装：生成 spark 插件配置（Paper 内置 spark）
+        // 12. plugins/spark/config.json
         File sparkDir = new File(workDir, "plugins/spark");
         if (!sparkDir.exists()) sparkDir.mkdirs();
         File sparkConfig = new File(workDir, "plugins/spark/config.json");
@@ -639,99 +891,23 @@ public class AoyouLauncher {
             sc.append("{\n");
             sc.append("  \"statisticsEnabled\": true,\n");
             sc.append("  \"statisticsInterval\": 3,\n");
-            sc.append("  \"statisticsCommand\": \"/spark stats\",\n");
-            sc.append("  \"profilerCommand\": \"/spark profiler\",\n");
-            sc.append("  \"heapSummaryCommand\": \"/spark heapsummary\",\n");
-            sc.append("  \"gcMonitorCommand\": \"/spark gcmonitor\",\n");
-            sc.append("  \"activityCommand\": \"/spark activity\",\n");
-            sc.append("  \"threadDumpCommand\": \"/spark threads\",\n");
-            sc.append("  \"diskSizeCommand\": \"/spark disks\",\n");
-            sc.append("  \"healthCommand\": \"/spark health\",\n");
             sc.append("  \"sparkDirectory\": \"plugins/spark/\",\n");
-            sc.append("  \"useDefaultExcludedThreadGroups\": true,\n");
-            sc.append("  \"excludedThreadGroups\": [],\n");
-            sc.append("  \"excludedThreads\": [],\n");
             sc.append("  \"profilerMaximumDurationSeconds\": 300,\n");
-            sc.append("  \"profilerMinimumUpdateIntervalSeconds\": 2,\n");
-            sc.append("  \"profilerMaxStackTraceLength\": 1024,\n");
-            sc.append("  \"profilerThreadSleepThresholdMillis\": 10,\n");
-            sc.append("  \"profilerSchedulerThresholdMillis\": 1,\n");
-            sc.append("  \"profilerClientTickDetectionThreshold\": 0.5,\n");
-            sc.append("  \"profilerServerTickDetectionThreshold\": 0.5,\n");
-            sc.append("  \"profilerBufferSize\": 524288,\n");
             sc.append("  \"profilerSamplingInterval\": 10000000,\n");
-            sc.append("  \"profilerTickStackTracesPerTick\": 1,\n");
-            sc.append("  \"profilerExportAggregator\": true,\n");
-            sc.append("  \"profilerExcludeNetworkingThreads\": true,\n");
-            sc.append("  \"profilerExcludeSamplingThreads\": true,\n");
-            sc.append("  \"defaultServerConnection\": \"server\",\n");
-            sc.append("  \"maxUploadSize\": 5242880,\n");
             sc.append("  \"uploadEndpoint\": \"https://sparkprofiler.com/api/\",\n");
             sc.append("  \"enableBootstrapOutputRedirector\": true,\n");
-            sc.append("  \"disableClipboardCopying\": false,\n");
-            sc.append("  \"threadDumperLogUnhandledThreads\": true,\n");
-            sc.append("  \"threadDumperMaxThreads\": 1024,\n");
-            sc.append("  \"threadDumperStackTraceDepth\": 1024,\n");
-            sc.append("  \"threadDumperFilter\": [],\n");
-            sc.append("  \"threadDumperIncludeNativeThreads\": true,\n");
-            sc.append("  \"threadDumperIncludeDaemonThreads\": true,\n");
-            sc.append("  \"threadDumperIncludeStackTraces\": true,\n");
-            sc.append("  \"threadDumperIncludeLockedMonitors\": true,\n");
-            sc.append("  \"threadDumperIncludeLockedSynchronizers\": true,\n");
-            sc.append("  \"threadDumperSortBy\": \"NAME\",\n");
-            sc.append("  \"threadDumperSortDescending\": false,\n");
-            sc.append("  \"heapSummarySortBy\": \"SIZE\",\n");
-            sc.append("  \"heapSummarySortDescending\": true,\n");
-            sc.append("  \"heapSummaryShowEmptyTypes\": false,\n");
-            sc.append("  \"heapSummaryShowClassNames\": true,\n");
-            sc.append("  \"heapSummaryMaxClassNames\": 0,\n");
-            sc.append("  \"heapSummaryIncludeClassLoader\": true,\n");
-            sc.append("  \"heapSummaryIncludeHash\": false,\n");
-            sc.append("  \"heapSummaryIncludeStackTrace\": false,\n");
-            sc.append("  \"heapSummaryIncludeFinalizerQueue\": true,\n");
-            sc.append("  \"heapSummaryIncludeUnreachable\": true,\n");
-            sc.append("  \"heapSummaryMaxObjects\": 100,\n");
-            sc.append("  \"heapSummaryMaxStackTracesPerClass\": 5,\n");
-            sc.append("  \"heapSummaryMaxStackTracesPerObject\": 1,\n");
-            sc.append("  \"heapSummaryMinSizeToRecord\": 1048576,\n");
-            sc.append("  \"heapSummaryMinObjectCountToRecord\": 100,\n");
-            sc.append("  \"heapSummaryMinStackTraceSizeToRecord\": 1,\n");
-            sc.append("  \"heapSummaryIncludeClassLoaderStatistics\": true,\n");
-            sc.append("  \"heapSummaryIncludeThreadStatistics\": true,\n");
-            sc.append("  \"heapSummaryIncludeObjectStatistics\": true,\n");
-            sc.append("  \"heapSummaryIncludeStackTraceStatistics\": true,\n");
-            sc.append("  \"heapSummaryIncludeFinalizerStatistics\": true,\n");
-            sc.append("  \"heapSummaryIncludeUnreachableStatistics\": true,\n");
-            sc.append("  \"heapSummaryOutputFormat\": \"TEXT\",\n");
-            sc.append("  \"heapSummaryOutputDestination\": \"CLIPBOARD\",\n");
-            sc.append("  \"heapSummaryOutputFile\": \"\",\n");
-            sc.append("  \"heapSummaryOutputFileAppend\": false,\n");
-            sc.append("  \"heapSummaryOutputFileCompressed\": true,\n");
-            sc.append("  \"heapSummaryOutputFileFormat\": \"TEXT\",\n");
-            sc.append("  \"heapSummaryOutputFileMaxSize\": 0,\n");
-            sc.append("  \"heapSummaryOutputFileRotationCount\": 0,\n");
-            sc.append("  \"heapSummaryOutputFileRotationDir\": \"\",\n");
-            sc.append("  \"heapSummaryOutputFileRotationNamePrefix\": \"spark-heapsummary-\",\n");
-            sc.append("  \"heapSummaryOutputFileRotationNameSuffix\": \".txt\",\n");
-            sc.append("  \"heapSummaryOutputFileRotationCompressed\": true,\n");
-            sc.append("  \"heapSummaryOutputFileRotationMaxSize\": 0,\n");
-            sc.append("  \"heapSummaryOutputFileRotationMaxAge\": 0,\n");
-            sc.append("  \"heapSummaryOutputFileRotationMaxCount\": 0,\n");
-            sc.append("  \"heapSummaryOutputFileRotationCleanUp\": true,\n");
-            sc.append("  \"heapSummaryOutputFileRotationIncludeTimestamp\": true,\n");
-            sc.append("  \"heapSummaryOutputFileRotationTimestampFormat\": \"yyyy-MM-dd_HH-mm-ss\"\n");
+            sc.append("  \"defaultServerConnection\": \"server\"\n");
             sc.append("}\n");
             Files.write(sparkConfig.toPath(), sc.toString().getBytes());
         }
 
-        // bStats 配置（Paper 内置统计）
+        // 13. plugins/bStats/config.yml
         File bstatsDir = new File(workDir, "plugins/bStats");
         if (!bstatsDir.exists()) bstatsDir.mkdirs();
         File bstatsConfig = new File(workDir, "plugins/bStats/config.yml");
         if (!bstatsConfig.exists()) {
             StringBuilder bc = new StringBuilder();
-            bc.append("# bStats collects some data for plugin authors like how far the plugin has spread.\n");
-            bc.append("# Players are NOT tracked, only basic server stats.\n");
+            bc.append("# bStats collects some data for plugin authors.\n");
             bc.append("# Check out https://bStats.org/ to learn more.\n");
             bc.append("enabled: true\n");
             bc.append("serverUuid: " + java.util.UUID.randomUUID() + "\n");
@@ -740,5 +916,10 @@ public class AoyouLauncher {
             bc.append("logResponseStatusText: false\n");
             Files.write(bstatsConfig.toPath(), bc.toString().getBytes());
         }
+
+        // 14. config 目录占位
+        new File(workDir, "config/.keep").createNewFile();
+        new File(workDir, "cache/.keep").createNewFile();
+        new File(workDir, "versions/.keep").createNewFile();
     }
 }
