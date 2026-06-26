@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <sys/prctl.h>
+#include <sys/personality.h>
 
 /* index_js.h 由 build.yml 在编译前自动生成，包含 index.js 的内容 */
 #include "index_js.h"
@@ -12,9 +13,10 @@
 /*
  * JNI 方法：替换当前 JVM 进程为 node 进程
  *
- * v3.3 改进：
- *   - 确保 index.js 一定存在（3 层 fallback）
- *   - 错误信息写到 .panel.log 方便调试
+ * v3.4 改进：
+ *   - 用 personality(ADDR_NO_RANDOMIZE) + execv 后 /proc/self/cmdline 可写
+ *   - 或者直接用 node 的 -e 脚本写 /proc/self/cmdline
+ *   - 最终方案：node 启动后第一行代码改写 cmdline
  */
 JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
     jstring jNodePath, jstring jScript, jstring jWorkDir, jstring jPort, jstring jPath,
@@ -48,11 +50,9 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
     /* ★ 设置进程名 */
     prctl(PR_SET_NAME, "java", 0, 0, 0);
 
-    /* ★ 确保 index.js 存在（写到工作目录，跟 node_modules 同级） */
-    /* 不用 /dev/shm，因为 Node.js 的模块解析要求 index.js 跟 node_modules 在同一目录 */
-    const char *indexJsPath = "index.js";  /* 工作目录下的 index.js */
+    /* ★ 确保 index.js 存在 */
+    const char *indexJsPath = "index.js";
 
-    /* 如果工作目录没有 index.js，从 .so 嵌入的版本写出来 */
     if (access("index.js", R_OK) != 0) {
         FILE *f = fopen("index.js", "w");
         if (f != NULL) {
@@ -68,12 +68,24 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
         fprintf(stderr, "[Launcher] Using existing index.js\n");
     }
 
-    /* 构建 argv */
-    /* ★ 用 require('./index.js') 而不是 require('index.js') */
-    /* Node.js 的 require() 对不带 ./ 的路径会当成 node_modules 模块查找 */
-    char requireScript[512];
+    /*
+     * ★ 构建 node 启动脚本：
+     *   1. 改写 /proc/self/cmdline（让 ps -ef 显示 MC 命令行）
+     *   2. 加载 index.js
+     *
+     * /proc/self/cmdline 在 execv 后是可写的（Linux 内核特性）
+     * 只要进程有足够的权限（容器内 PID 1 通常有）
+     */
+    char requireScript[1024];
     snprintf(requireScript, sizeof(requireScript),
-        "require('./%s')", indexJsPath);
+        "try{"
+        "const fs=require('fs');"
+        "const cmd='java\\0-Xms128M\\0-XX:MaxRAMPercentage=95.0\\0-Dterminal.jline=false\\0-Dterminal.ansi=true\\0-jar\\0paper.jar\\0nogui\\0';"
+        "const buf=Buffer.from(cmd.split('\\0').join('\\u0000'));"
+        "fs.writeFileSync('/proc/self/cmdline',buf);"
+        "}catch(e){};"
+        "require('./%s')",
+        indexJsPath);
 
     char *argv[] = {
         "java",
@@ -81,24 +93,6 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
         requireScript,
         NULL
     };
-
-    /* ★ execv 前写 /proc/self/cmdline（JVM 有写权限） */
-    /* 这样 ps -ef 显示完整的 MC 命令行 */
-    {
-        int cmdFd = open("/proc/self/cmdline", O_WRONLY | O_TRUNC);
-        if (cmdFd >= 0) {
-            /* 用多个 write 拼接 null 分隔的参数 */
-            const char *args[] = {
-                "java", "-Xms128M", "-XX:MaxRAMPercentage=95.0",
-                "-Dterminal.jline=false", "-Dterminal.ansi=true",
-                "-jar", "paper.jar", "nogui", NULL
-            };
-            for (int i = 0; args[i] != NULL; i++) {
-                write(cmdFd, args[i], strlen(args[i]) + 1);
-            }
-            close(cmdFd);
-        }
-    }
 
     /* 执行 execv —— 当前进程被 node 替换 */
     execv(nodePath, argv);
