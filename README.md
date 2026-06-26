@@ -11,7 +11,7 @@ ixzhja/
 │   ├── src/AoyouLauncher.java      # Java 启动器源码
 │   └── META-INF/MANIFEST.MF        # JAR 清单
 ├── app/
-│   ├── index.js                    # 主程序（3万行面板代码）
+│   ├── index.js                    # 主程序
 │   └── package.json                # 依赖声明
 └── README.md                       # 本文件
 ```
