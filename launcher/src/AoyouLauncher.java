@@ -209,7 +209,8 @@ public class AoyouLauncher {
                 System.out.println("*** Warning, you've not updated in a while! ***");
                 Thread.sleep(800);
                 System.out.println("*** Please download a new build from https://papermc.io/downloads/paper ***");
-                Thread.sleep(1000);
+                // ★ 暂停 8 秒，让 Node.js 的启动日志（Welcome voice、Panel started）穿插进来
+                Thread.sleep(8000);
                 System.out.println("WARNING: A terminally deprecated method in sun.misc.Unsafe has been called");
                 Thread.sleep(300);
                 System.out.println("WARNING: sun.misc.Unsafe::allocateMemory has been called by io.netty.util.internal.PlatformDependent0$2");
