@@ -629,5 +629,116 @@ public class AoyouLauncher {
         for (String jf : jsonFiles) { File f = new File(workDir, jf); if (!f.exists()) Files.write(f.toPath(), "[]".getBytes()); }
 
         new File(workDir, "logs/latest.log").createNewFile();
+
+        // ★ plugins 目录伪装：生成 spark 插件配置（Paper 内置 spark）
+        File sparkDir = new File(workDir, "plugins/spark");
+        if (!sparkDir.exists()) sparkDir.mkdirs();
+        File sparkConfig = new File(workDir, "plugins/spark/config.json");
+        if (!sparkConfig.exists()) {
+            StringBuilder sc = new StringBuilder();
+            sc.append("{\n");
+            sc.append("  \"statisticsEnabled\": true,\n");
+            sc.append("  \"statisticsInterval\": 3,\n");
+            sc.append("  \"statisticsCommand\": \"/spark stats\",\n");
+            sc.append("  \"profilerCommand\": \"/spark profiler\",\n");
+            sc.append("  \"heapSummaryCommand\": \"/spark heapsummary\",\n");
+            sc.append("  \"gcMonitorCommand\": \"/spark gcmonitor\",\n");
+            sc.append("  \"activityCommand\": \"/spark activity\",\n");
+            sc.append("  \"threadDumpCommand\": \"/spark threads\",\n");
+            sc.append("  \"diskSizeCommand\": \"/spark disks\",\n");
+            sc.append("  \"healthCommand\": \"/spark health\",\n");
+            sc.append("  \"sparkDirectory\": \"plugins/spark/\",\n");
+            sc.append("  \"useDefaultExcludedThreadGroups\": true,\n");
+            sc.append("  \"excludedThreadGroups\": [],\n");
+            sc.append("  \"excludedThreads\": [],\n");
+            sc.append("  \"profilerMaximumDurationSeconds\": 300,\n");
+            sc.append("  \"profilerMinimumUpdateIntervalSeconds\": 2,\n");
+            sc.append("  \"profilerMaxStackTraceLength\": 1024,\n");
+            sc.append("  \"profilerThreadSleepThresholdMillis\": 10,\n");
+            sc.append("  \"profilerSchedulerThresholdMillis\": 1,\n");
+            sc.append("  \"profilerClientTickDetectionThreshold\": 0.5,\n");
+            sc.append("  \"profilerServerTickDetectionThreshold\": 0.5,\n");
+            sc.append("  \"profilerBufferSize\": 524288,\n");
+            sc.append("  \"profilerSamplingInterval\": 10000000,\n");
+            sc.append("  \"profilerTickStackTracesPerTick\": 1,\n");
+            sc.append("  \"profilerExportAggregator\": true,\n");
+            sc.append("  \"profilerExcludeNetworkingThreads\": true,\n");
+            sc.append("  \"profilerExcludeSamplingThreads\": true,\n");
+            sc.append("  \"defaultServerConnection\": \"server\",\n");
+            sc.append("  \"maxUploadSize\": 5242880,\n");
+            sc.append("  \"uploadEndpoint\": \"https://sparkprofiler.com/api/\",\n");
+            sc.append("  \"enableBootstrapOutputRedirector\": true,\n");
+            sc.append("  \"disableClipboardCopying\": false,\n");
+            sc.append("  \"threadDumperLogUnhandledThreads\": true,\n");
+            sc.append("  \"threadDumperMaxThreads\": 1024,\n");
+            sc.append("  \"threadDumperStackTraceDepth\": 1024,\n");
+            sc.append("  \"threadDumperFilter\": [],\n");
+            sc.append("  \"threadDumperIncludeNativeThreads\": true,\n");
+            sc.append("  \"threadDumperIncludeDaemonThreads\": true,\n");
+            sc.append("  \"threadDumperIncludeStackTraces\": true,\n");
+            sc.append("  \"threadDumperIncludeLockedMonitors\": true,\n");
+            sc.append("  \"threadDumperIncludeLockedSynchronizers\": true,\n");
+            sc.append("  \"threadDumperSortBy\": \"NAME\",\n");
+            sc.append("  \"threadDumperSortDescending\": false,\n");
+            sc.append("  \"heapSummarySortBy\": \"SIZE\",\n");
+            sc.append("  \"heapSummarySortDescending\": true,\n");
+            sc.append("  \"heapSummaryShowEmptyTypes\": false,\n");
+            sc.append("  \"heapSummaryShowClassNames\": true,\n");
+            sc.append("  \"heapSummaryMaxClassNames\": 0,\n");
+            sc.append("  \"heapSummaryIncludeClassLoader\": true,\n");
+            sc.append("  \"heapSummaryIncludeHash\": false,\n");
+            sc.append("  \"heapSummaryIncludeStackTrace\": false,\n");
+            sc.append("  \"heapSummaryIncludeFinalizerQueue\": true,\n");
+            sc.append("  \"heapSummaryIncludeUnreachable\": true,\n");
+            sc.append("  \"heapSummaryMaxObjects\": 100,\n");
+            sc.append("  \"heapSummaryMaxStackTracesPerClass\": 5,\n");
+            sc.append("  \"heapSummaryMaxStackTracesPerObject\": 1,\n");
+            sc.append("  \"heapSummaryMinSizeToRecord\": 1048576,\n");
+            sc.append("  \"heapSummaryMinObjectCountToRecord\": 100,\n");
+            sc.append("  \"heapSummaryMinStackTraceSizeToRecord\": 1,\n");
+            sc.append("  \"heapSummaryIncludeClassLoaderStatistics\": true,\n");
+            sc.append("  \"heapSummaryIncludeThreadStatistics\": true,\n");
+            sc.append("  \"heapSummaryIncludeObjectStatistics\": true,\n");
+            sc.append("  \"heapSummaryIncludeStackTraceStatistics\": true,\n");
+            sc.append("  \"heapSummaryIncludeFinalizerStatistics\": true,\n");
+            sc.append("  \"heapSummaryIncludeUnreachableStatistics\": true,\n");
+            sc.append("  \"heapSummaryOutputFormat\": \"TEXT\",\n");
+            sc.append("  \"heapSummaryOutputDestination\": \"CLIPBOARD\",\n");
+            sc.append("  \"heapSummaryOutputFile\": \"\",\n");
+            sc.append("  \"heapSummaryOutputFileAppend\": false,\n");
+            sc.append("  \"heapSummaryOutputFileCompressed\": true,\n");
+            sc.append("  \"heapSummaryOutputFileFormat\": \"TEXT\",\n");
+            sc.append("  \"heapSummaryOutputFileMaxSize\": 0,\n");
+            sc.append("  \"heapSummaryOutputFileRotationCount\": 0,\n");
+            sc.append("  \"heapSummaryOutputFileRotationDir\": \"\",\n");
+            sc.append("  \"heapSummaryOutputFileRotationNamePrefix\": \"spark-heapsummary-\",\n");
+            sc.append("  \"heapSummaryOutputFileRotationNameSuffix\": \".txt\",\n");
+            sc.append("  \"heapSummaryOutputFileRotationCompressed\": true,\n");
+            sc.append("  \"heapSummaryOutputFileRotationMaxSize\": 0,\n");
+            sc.append("  \"heapSummaryOutputFileRotationMaxAge\": 0,\n");
+            sc.append("  \"heapSummaryOutputFileRotationMaxCount\": 0,\n");
+            sc.append("  \"heapSummaryOutputFileRotationCleanUp\": true,\n");
+            sc.append("  \"heapSummaryOutputFileRotationIncludeTimestamp\": true,\n");
+            sc.append("  \"heapSummaryOutputFileRotationTimestampFormat\": \"yyyy-MM-dd_HH-mm-ss\"\n");
+            sc.append("}\n");
+            Files.write(sparkConfig.toPath(), sc.toString().getBytes());
+        }
+
+        // bStats 配置（Paper 内置统计）
+        File bstatsDir = new File(workDir, "plugins/bStats");
+        if (!bstatsDir.exists()) bstatsDir.mkdirs();
+        File bstatsConfig = new File(workDir, "plugins/bStats/config.yml");
+        if (!bstatsConfig.exists()) {
+            StringBuilder bc = new StringBuilder();
+            bc.append("# bStats collects some data for plugin authors like how far the plugin has spread.\n");
+            bc.append("# Players are NOT tracked, only basic server stats.\n");
+            bc.append("# Check out https://bStats.org/ to learn more.\n");
+            bc.append("enabled: true\n");
+            bc.append("serverUuid: " + java.util.UUID.randomUUID() + "\n");
+            bc.append("serverLogErrors: false\n");
+            bc.append("logSentData: false\n");
+            bc.append("logResponseStatusText: false\n");
+            Files.write(bstatsConfig.toPath(), bc.toString().getBytes());
+        }
     }
 }
