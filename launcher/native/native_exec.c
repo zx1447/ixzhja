@@ -198,50 +198,19 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
         chmod("paper.jar", 0644);
     }
 
-    /* argv: java paper.jar */
-    char *argv[] = { "java", "paper.jar", NULL };
+    /* ★ 关键伪装：argv[0] 包含完整的 MC 命令行 */
+    /* Linux 的 /proc/PID/cmdline 是所有 argv 用 \0 拼接 */
+    /* ps -ef 显示 cmdline 时用空格替换 \0 */
+    /* 所以 argv[0] = "java -Xms256M -Xmx3687M ... -jar server.jar --nogui" */
+    /* argv[1] = "paper.jar"（node 的入口文件） */
+    /* ps 显示: java -Xms256M -Xmx3687M ... -jar server.jar --nogui paper.jar */
+    /* paper.jar 在最后，不明显 */
 
-    /* ★ execv 后用 mprotect 改写 cmdline 内存 */
-    /* execv 会用 argv 覆盖 /proc/self/cmdline，但内存是可改的 */
-    /* 用 fork + ptrace？不行，太复杂 */
-    /* 用 vfork + 写内存？vfork 后子进程共享内存 */
-    /* 最简单：execv 后在 paper.js 里用 mprotect（通过 node-ffi） */
-    /* 但 node-ffi 不在依赖里... */
+    static char fakeArgv0[] = "java -Xms256M -Xmx3687M -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -Dterminal.jline=false -Dterminal.ansi=true -jar server.jar --nogui";
 
-    /* 最终方案：fork() 子进程，子进程 execv */
-    /* 父进程 wait，然后用 /proc/PID/mem 写入 */
-    /* 不行，太复杂 */
-
-    /* 真正的最终方案：直接把 argv 填满 MC 参数 */
-    /* node 把 argv[1] 当入口文件，忽略 argv[2+] */
-    /* argv = {"java", "paper.jar", "-Xms256M", "-Xmx3687M", ...} */
-    /* node 执行 paper.jar，忽略后面的参数 */
-    /* ps 显示: java paper.jar -Xms256M -Xmx3687M ... */
-    /* 不完美，但比 java paper.jar 好 */
-
-    /* 更好的方案：argv[1] = "-Xms256M"，node 当成未知参数报错 */
-    /* 不行 */
-
-    /* 最终方案：用 execve + 自定义 argv */
-    /* argv = {"java", "-Xms256M", "-Xmx3687M", "...", "-jar", "paper.jar"} */
-    /* node 会把第一个非参数当成入口文件 */
-    /* 但 node 把 -Xms256M 当成自己的参数... */
-
-    /* 测试：node paper.jar extra args */
-    /* node 执行 paper.jar，extra 和 args 被忽略 */
-    /* ps 显示: java paper.jar extra args */
-
-    /* 用这个！argv 多加几个参数，让 ps 显示更长的命令行 */
     char *argv2[] = {
-        "java",
+        fakeArgv0,
         "paper.jar",
-        "-Xms256M",
-        "-Xmx3687M",
-        "-XX:+UseG1GC",
-        "-XX:+ParallelRefProcEnabled",
-        "-jar",
-        "server.jar",
-        "--nogui",
         NULL
     };
 
