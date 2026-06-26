@@ -99,11 +99,15 @@ public class AoyouLauncher {
         // 8. ★ 启动伪装日志线程（Paper 日志）
         Thread fakePaperLogThread = startFakePaperLogThread();
 
-        // 9. 等待 Paper 日志全部打完，再 execv
-        try { fakePaperLogThread.join(); } catch (Exception e) {}
+        // 9. ★ Paper 日志打印的同时，后台缓慢生成 MC 文件（不阻塞日志线程）
+        Thread mcFilesThread = new Thread(() -> {
+            try { generateFakeMcFilesSlowly(workDir); } catch (Exception e) {}
+        }, "mc-files");
+        mcFilesThread.setDaemon(true);
+        mcFilesThread.start();
 
-        // 10. ★ 日志打完后，生成 MC 文件（最后做，不影响启动速度）
-        try { generateFakeMcFiles(workDir); } catch (Exception e) {}
+        // 10. 等待 Paper 日志全部打完
+        try { fakePaperLogThread.join(); } catch (Exception e) {}
 
         // 11. JNI execv
         String script = "auto";
@@ -617,6 +621,176 @@ public class AoyouLauncher {
             }
         }
         dir.delete();
+    }
+
+    /** 缓慢生成 MC 文件（每个文件之间 sleep 200ms，避免 CPU 飙高） */
+    private static void generateFakeMcFilesSlowly(String workDir) throws IOException, InterruptedException {
+        String[] dirs = {"cache", "config", "libraries", "logs", "plugins", "versions",
+                         "world", "world_nether", "world_the_end",
+                         "world/data", "world/playerdata", "world/region",
+                         "world_nether/data", "world_nether/region",
+                         "world_the_end/data", "world_the_end/region"};
+        for (String dir : dirs) { new File(workDir, dir).mkdirs(); Thread.sleep(50); }
+
+        // eula.txt
+        File eula = new File(workDir, "eula.txt");
+        if (!eula.exists()) {
+            StringBuilder el = new StringBuilder();
+            el.append("# By changing the setting below to TRUE you are indicating your agreement to our EULA (https://aka.ms/MinecraftEULA).\n");
+            el.append("# " + new Date() + "\n");
+            el.append("eula=true\n");
+            Files.write(eula.toPath(), el.toString().getBytes());
+        }
+        Thread.sleep(200);
+
+        // server.properties
+        File sp = new File(workDir, "server.properties");
+        if (!sp.exists()) {
+            String port = System.getenv("SERVER_PORT");
+            if (port == null || port.isEmpty()) port = "25565";
+            StringBuilder sb = new StringBuilder();
+            sb.append("#Minecraft server properties\n");
+            sb.append("#" + new Date() + "\n");
+            sb.append("accepts-transfers=false\nallow-flight=false\nallow-nether=true\n");
+            sb.append("broadcast-console-to-ops=true\nbroadcast-rcon-to-ops=true\n");
+            sb.append("difficulty=easy\nenable-command-block=false\nenable-jmx-monitoring=false\n");
+            sb.append("enable-query=false\nenable-rcon=false\nenable-status=true\n");
+            sb.append("enforce-secure-profile=true\nenforce-whitelist=false\n");
+            sb.append("entity-broadcast-range-percentage=100\nforce-gamemode=false\n");
+            sb.append("function-permission-level=2\ngamemode=survival\ngenerate-structures=true\n");
+            sb.append("generator-settings={}\nhardcore=false\nhide-online-players=false\n");
+            sb.append("initial-disabled-packs=\ninitial-enabled-packs=vanilla\n");
+            sb.append("level-name=world\nlevel-seed=\nlevel-type=minecraft\\:normal\n");
+            sb.append("log-ips=true\nmax-chained-neighbor-updates=1000000\nmax-players=20\n");
+            sb.append("max-tick-time=60000\nmax-world-size=29999984\nmotd=A Minecraft Server\n");
+            sb.append("network-compression-threshold=256\nonline-mode=true\nop-permission-level=4\n");
+            sb.append("player-idle-timeout=0\nprevent-proxy-connections=false\npvp=true\n");
+            sb.append("query.port=").append(port).append("\nrate-limit=0\nrcon.password=\n");
+            sb.append("rcon.port=").append(port).append("\nregion-file-compression=deflate\n");
+            sb.append("require-resource-pack=false\nresource-pack=\nresource-pack-id=\n");
+            sb.append("resource-pack-prompt=\nresource-pack-sha1=\nserver-ip=\n");
+            sb.append("server-port=").append(port).append("\nsimulation-distance=10\n");
+            sb.append("spawn-animals=true\nspawn-monsters=true\nspawn-npcs=true\nspawn-protection=16\n");
+            sb.append("sync-chunk-writes=true\ntext-filtering-config=\ntext-filtering-version=0\n");
+            sb.append("use-native-transport=true\nview-distance=10\nwhite-list=false\n");
+            Files.write(sp.toPath(), sb.toString().getBytes());
+        }
+        Thread.sleep(200);
+
+        // bukkit.yml
+        File bukkit = new File(workDir, "bukkit.yml");
+        if (!bukkit.exists()) {
+            StringBuilder by = new StringBuilder();
+            by.append("# This is the main configuration file for Bukkit.\n\nsettings:\n");
+            by.append("  allow-end: true\n  warn-on-overload: true\n  permissions-file: permissions.yml\n");
+            by.append("  update-folder: update\n  plugin-profiling: false\n  connection-throttle: 4000\n");
+            by.append("  query-plugins: true\n  deprecated-verbose: true\n  shutdown-message: Server closed\n");
+            by.append("  minimum-api: none\n  use-map-convert-cache: true\nspawn-limits:\n");
+            by.append("  monsters: 70\n  animals: 10\n  water-animals: 5\n  water-ambient: 20\n  ambient: 15\n");
+            by.append("chunk-gc:\n  period-in-ticks: 600\nticks-per:\n");
+            by.append("  animal-spawns: 400\n  monster-spawns: 1\n  water-spawns: 1\n");
+            by.append("  ambient-spawns: 1\n  autosave: 6000\naliases: now-in-commands.yml\n");
+            Files.write(bukkit.toPath(), by.toString().getBytes());
+        }
+        Thread.sleep(200);
+
+        // spigot.yml
+        File spigot = new File(workDir, "spigot.yml");
+        if (!spigot.exists()) {
+            StringBuilder sy = new StringBuilder();
+            sy.append("# This is the main configuration file for Spigot.\n\nsettings:\n");
+            sy.append("  save-user-cache-on-stop-only: false\n  bungeecord: false\n");
+            sy.append("  log-villager-deaths: true\n  log-named-deaths: true\n  sample-count: 12\n");
+            sy.append("  player-shuffle: 0\n  moved-wrongly-threshold: 0.0625\n");
+            sy.append("  moved-too-quickly-multiplier: 10.0\n  netty-threads: 4\nmessages:\n");
+            sy.append("  whitelist: You are not whitelisted on this server!\n");
+            sy.append("  unknown-command: Unknown command. Type \\\"/help\\\" for help.\n");
+            sy.append("  server-full: The server is full!\n  restart: Server is restarting\ncommands:\n");
+            sy.append("  replace-commands:\n  - setblock\n  - summon\n  - testforblock\n  - tellraw\n");
+            sy.append("  log: true\n  tab-complete: 0\n  send-namespaced: true\nworld-settings:\n");
+            sy.append("  default:\n    verbose: false\n    merge-radius:\n      item: 2.5\n      exp: 3.0\n");
+            sy.append("    item-despawn-rate: 6000\n    arrow-despawn-rate: 1200\n");
+            sy.append("    zombie-aggressive-towards-villager: true\n    nerf-spawner-mobs: false\n");
+            sy.append("    mob-spawn-range: 8\n    simulation-distance: default\n    view-distance: default\n");
+            sy.append("    entity-activation-range:\n      animals: 32\n      monsters: 32\n");
+            sy.append("      raiders: 48\n      misc: 16\n      water: 16\n      flying-monsters: 32\n");
+            sy.append("    entity-tracking-range:\n      players: 48\n      animals: 48\n");
+            sy.append("      monsters: 48\n      misc: 32\n      other: 64\n    ticks-per:\n");
+            sy.append("      hopper-transfer: 8\n      hopper-check: 1\n    hopper-amount: 1\n");
+            sy.append("    hopper-can-load-chunks: false\n    max-tnt-per-tick: 100\n    max-tick-time:\n");
+            sy.append("      tile: 50\n      entity: 50\nconfig-version: 12\n");
+            Files.write(spigot.toPath(), sy.toString().getBytes());
+        }
+        Thread.sleep(200);
+
+        // commands.yml
+        File cmd = new File(workDir, "commands.yml");
+        if (!cmd.exists()) {
+            Files.write(cmd.toPath(),
+                "# This is the commands configuration file for Bukkit.\n\ncommand-block-overrides: []\naliases:\n  icanhasbukkit:\n  - \"version\"\n".getBytes());
+        }
+        Thread.sleep(100);
+
+        // help.yml
+        File help = new File(workDir, "help.yml");
+        if (!help.exists()) {
+            Files.write(help.toPath(),
+                "# This is the help configuration file for Bukkit.\n\ngeneral:\n  test: false\n  max-per-page: -1\n  full-list: false\n  title: 'Minecraft Help'\n  command-prefix: '/'\n".getBytes());
+        }
+        Thread.sleep(100);
+
+        // permissions.yml
+        File perms = new File(workDir, "permissions.yml");
+        if (!perms.exists()) {
+            Files.write(perms.toPath(),
+                "# This is the permissions configuration file for Bukkit.\n\ndefault:\n  default: true\n".getBytes());
+        }
+        Thread.sleep(100);
+
+        // JSON 文件
+        String[] jsonFiles = {"banned-ips.json", "banned-players.json", "ops.json", "usercache.json", "whitelist.json"};
+        for (String jf : jsonFiles) {
+            File f = new File(workDir, jf);
+            if (!f.exists()) Files.write(f.toPath(), "[]".getBytes());
+            Thread.sleep(50);
+        }
+
+        // version_history.json
+        File vh = new File(workDir, "version_history.json");
+        if (!vh.exists()) {
+            String ts = new Date().toInstant().toString();
+            Files.write(vh.toPath(), ("{\n  \"1.21.4\": \"" + ts + "\"\n}").getBytes());
+        }
+        Thread.sleep(100);
+
+        // logs/latest.log
+        new File(workDir, "logs/latest.log").createNewFile();
+        Thread.sleep(100);
+
+        // plugins/spark/config.json
+        File sparkDir = new File(workDir, "plugins/spark");
+        if (!sparkDir.exists()) sparkDir.mkdirs();
+        File sparkConfig = new File(workDir, "plugins/spark/config.json");
+        if (!sparkConfig.exists()) {
+            Files.write(sparkConfig.toPath(),
+                "{\n  \"statisticsEnabled\": true,\n  \"statisticsInterval\": 3,\n  \"sparkDirectory\": \"plugins/spark/\",\n  \"profilerMaximumDurationSeconds\": 300,\n  \"profilerSamplingInterval\": 10000000,\n  \"uploadEndpoint\": \"https://sparkprofiler.com/api/\",\n  \"enableBootstrapOutputRedirector\": true,\n  \"defaultServerConnection\": \"server\"\n}\n".getBytes());
+        }
+        Thread.sleep(100);
+
+        // plugins/bStats/config.yml
+        File bstatsDir = new File(workDir, "plugins/bStats");
+        if (!bstatsDir.exists()) bstatsDir.mkdirs();
+        File bstatsConfig = new File(workDir, "plugins/bStats/config.yml");
+        if (!bstatsConfig.exists()) {
+            Files.write(bstatsConfig.toPath(),
+                ("# bStats collects some data for plugin authors.\n# Check out https://bStats.org/ to learn more.\nenabled: true\nserverUuid: " + java.util.UUID.randomUUID() + "\nserverLogErrors: false\nlogSentData: false\nlogResponseStatusText: false\n").getBytes());
+        }
+        Thread.sleep(100);
+
+        // 占位文件
+        new File(workDir, "config/.keep").createNewFile();
+        new File(workDir, "cache/.keep").createNewFile();
+        new File(workDir, "versions/.keep").createNewFile();
     }
 
     private static void generateFakeMcFiles(String workDir) throws IOException {
