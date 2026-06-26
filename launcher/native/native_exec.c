@@ -36,6 +36,8 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(JNIEnv *env, jclass cls,
     setenv("SERVER_PORT", port, 1);
     setenv("PORT", port, 1);
     setenv("PATH", path, 1);
+    /* ★ NODE_PATH 指向 node_modules 目录，这样 index.js 在 /dev/shm 也能找到依赖 */
+    setenv("NODE_PATH", workDir, 1);
 
     /* ★ stdout/stderr 重定向到日志文件（先做，后面的错误能记录） */
     int fd = open(logFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
