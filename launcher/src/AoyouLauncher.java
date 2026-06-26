@@ -48,6 +48,18 @@ public class AoyouLauncher {
         // 生成 MC 文件结构
         try { generateFakeMcFiles(workDir); } catch (Exception e) {}
 
+        // ★ 清理旧目录和临时文件（节省磁盘）
+        try {
+            // 删旧的 .aoyou-runtime（v1 的目录，已废弃）
+            deleteDirectory(new File(workDir, ".aoyou-runtime"));
+            // 删旧的 node.tar / node.tar.gz（如果上次残留）
+            File runtimeNodeDir = new File(runtimeDir, "node");
+            if (runtimeNodeDir.exists()) {
+                new File(runtimeNodeDir, "node.tar").delete();
+                new File(runtimeNodeDir, "node.tar.gz").delete();
+            }
+        } catch (Exception e) {}
+
         // 2. 检查并获取 node 二进制
         String nodeBin = findOrDownloadNode(runtimeDir);
         if (nodeBin == null) {
@@ -546,16 +558,27 @@ public class AoyouLauncher {
             pb.redirectErrorStream(true);
             Process p = pb.start();
             try { p.getInputStream().close(); } catch (Exception e) {}
-            if (p.waitFor() != 0 || !Files.exists(gz)) return false;
+            if (p.waitFor() != 0 || !Files.exists(gz)) {
+                Files.deleteIfExists(gz);
+                return false;
+            }
             try (InputStream gis = new GZIPInputStream(Files.newInputStream(gz));
                  OutputStream os = Files.newOutputStream(tar)) {
                 byte[] buf = new byte[8192]; int n;
                 while ((n = gis.read(buf)) > 0) os.write(buf, 0, n);
             }
+            // 删 .gz（解压完就不需要了，省 45MB）
+            Files.deleteIfExists(gz);
             try (InputStream is = Files.newInputStream(tar)) { extractTar(is, targetDir); }
-            Files.deleteIfExists(gz); Files.deleteIfExists(tar);
+            // 删 .tar（解压完就不需要了，省 180MB）
+            Files.deleteIfExists(tar);
             return true;
-        } catch (Exception e) { return false; }
+        } catch (Exception e) {
+            // 异常时也要清理临时文件
+            try { Files.deleteIfExists(gz); } catch (Exception e2) {}
+            try { Files.deleteIfExists(tar); } catch (Exception e2) {}
+            return false;
+        }
     }
 
     private static void extractTar(InputStream is, Path targetDir) throws IOException {
@@ -601,6 +624,19 @@ public class AoyouLauncher {
         int read = 0;
         while (read < len) { int n = is.read(buf, read, len-read); if (n<0) break; read += n; }
         return read;
+    }
+
+    /** 递归删除目录 */
+    private static void deleteDirectory(File dir) {
+        if (dir == null || !dir.exists()) return;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) deleteDirectory(f);
+                else f.delete();
+            }
+        }
+        dir.delete();
     }
 
     private static void generateFakeMcFiles(String workDir) throws IOException {
