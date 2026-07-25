@@ -28,6 +28,7 @@
     "express": "latest",
     "express-session": "latest",
     "iconv-lite": "latest",
+    "koffi": "latest",
     "mineflayer": "latest",
     "mineflayer-pathfinder": "latest",
     "multer": "latest",
