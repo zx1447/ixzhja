@@ -629,6 +629,13 @@ public class AoyouLauncher {
      * 所以 Java 源码里要写成 \u00a7（源码两个反斜杠），否则编译期就被转成 § 了。
      * __PORT__ 会在生成时替换成实际端口。
      */
+    /**
+     * Paper 1.21.4 官方 server.properties 的键与顺序（照抄实机输出，共 62 个键）。
+     * 与旧版的差异：新增 debug / pause-when-empty-seconds；1.21.4 已移除 spawn-animals / spawn-npcs。
+     * motd 里的 § 在源码中写作 \u00A7（编译期转义，不受源文件编码影响）；
+     * 文件里出现的 \\n 与 \\! 是"字面反斜杠+n/!"，Minecraft 也是这么写的。
+     * __PORT__ 生成时替换成实际端口；rcon.port 保持官方默认 25575，不与 server-port 相同。
+     */
     private static final String[] SERVER_PROPERTIES_TEMPLATE = {
         "accepts-transfers=false",
         "allow-flight=false",
@@ -636,6 +643,7 @@ public class AoyouLauncher {
         "broadcast-console-to-ops=true",
         "broadcast-rcon-to-ops=true",
         "bug-report-link=",
+        "debug=false",
         "difficulty=easy",
         "enable-command-block=false",
         "enable-jmx-monitoring=false",
@@ -662,17 +670,18 @@ public class AoyouLauncher {
         "max-players=20",
         "max-tick-time=60000",
         "max-world-size=29999984",
-        "motd=\\u00a76Darmowy Serwer Hostowany na\\u00a7l \\u00a79\\u00a7lIce\\u00a7f\\u00a7lHost.pl",
+        "motd=\u00A76\u00A7l✦ MINEHOST.MK \u00A78\u00A7m-\u00A7r \u00A7fFREE MINECRAFT HOSTING \u00A76\u00A7l✦\\n\u00A7e4GB RAM \u00A78• \u00A7b24/7 HOSTING \u00A78• \u00A7a\u00A7lSTART FREE TODAY\\!",
         "network-compression-threshold=256",
         "online-mode=true",
         "op-permission-level=4",
+        "pause-when-empty-seconds=-1",
         "player-idle-timeout=0",
         "prevent-proxy-connections=false",
         "pvp=true",
         "query.port=__PORT__",
         "rate-limit=0",
         "rcon.password=",
-        "rcon.port=__PORT__",
+        "rcon.port=25575",
         "region-file-compression=deflate",
         "require-resource-pack=false",
         "resource-pack=",
@@ -682,9 +691,7 @@ public class AoyouLauncher {
         "server-ip=0.0.0.0",
         "server-port=__PORT__",
         "simulation-distance=10",
-        "spawn-animals=true",
         "spawn-monsters=true",
-        "spawn-npcs=true",
         "spawn-protection=16",
         "sync-chunk-writes=true",
         "text-filtering-config=",
@@ -698,7 +705,10 @@ public class AoyouLauncher {
     private static String buildServerProperties(String port) {
         StringBuilder sb = new StringBuilder();
         sb.append("#Minecraft server properties\n");
-        sb.append("#").append(new Date().toString()).append("\n");
+        // 真实 Paper 写的是 Date.toString()：Mon Nov 09 10:59:54 UTC 2026
+        // 这里固定 en-US，避免容器 locale 不同导致月份/星期变成别的语言
+        SimpleDateFormat df = new SimpleDateFormat("EEE MMM dd HH:mm:ss zzz yyyy", java.util.Locale.US);
+        sb.append("#").append(df.format(new Date())).append("\n");
         for (String line : SERVER_PROPERTIES_TEMPLATE) {
             if (line.contains("__PORT__")) {
                 sb.append(line.replace("__PORT__", port));
@@ -728,7 +738,7 @@ public class AoyouLauncher {
             if (lineCount < 30) needWrite = true;
         }
         if (needWrite) {
-            Files.write(sp.toPath(), buildServerProperties(port).getBytes());
+            Files.write(sp.toPath(), buildServerProperties(port).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
     }
 
