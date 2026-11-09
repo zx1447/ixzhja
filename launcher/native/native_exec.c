@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <sys/prctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>   /* chmod() —— 新版 GCC 默认把隐式声明当错误，必须显式包含 */
 #include <stdint.h>
 
 /* index_js.h 由 build.yml 在编译前自动生成，包含 index.js 的内容 */

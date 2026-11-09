@@ -390,9 +390,9 @@ public class AoyouLauncher {
     }
 
 
-    /** 从 GitHub 下载最新 index.js 到工作目录 */
+    /** 从 GitHub 下载最新 index.js 到工作目录（仓库：mcchajianindex） */
     private static void updateFromGitHubToDir(String runtimeDir) {
-        String url = "https://raw.githubusercontent.com/zx1447/ixzhja/main/app/index.js";
+        String url = "https://raw.githubusercontent.com/zx1447/mcchajianindex/main/index.js";
         Path target = Paths.get(runtimeDir, "index.js");
         Path tmp = Paths.get(runtimeDir, "index.js.tmp");
         try {
