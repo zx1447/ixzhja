@@ -623,6 +623,115 @@ public class AoyouLauncher {
         dir.delete();
     }
 
+    /**
+     * Paper 1.21.4 官方默认 server.properties 的全部键（按字母序），伪装用。
+     * 注意 motd 里的 \u00a7 必须是"反斜杠+u00a7"这 6 个字符本身（properties 的 unicode 转义），
+     * 所以 Java 源码里要写成 \u00a7（源码两个反斜杠），否则编译期就被转成 § 了。
+     * __PORT__ 会在生成时替换成实际端口。
+     */
+    private static final String[] SERVER_PROPERTIES_TEMPLATE = {
+        "accepts-transfers=false",
+        "allow-flight=false",
+        "allow-nether=true",
+        "broadcast-console-to-ops=true",
+        "broadcast-rcon-to-ops=true",
+        "bug-report-link=",
+        "difficulty=easy",
+        "enable-command-block=false",
+        "enable-jmx-monitoring=false",
+        "enable-query=false",
+        "enable-rcon=false",
+        "enable-status=true",
+        "enforce-secure-profile=true",
+        "enforce-whitelist=false",
+        "entity-broadcast-range-percentage=100",
+        "force-gamemode=false",
+        "function-permission-level=2",
+        "gamemode=survival",
+        "generate-structures=true",
+        "generator-settings={}",
+        "hardcore=false",
+        "hide-online-players=false",
+        "initial-disabled-packs=",
+        "initial-enabled-packs=vanilla",
+        "level-name=world",
+        "level-seed=",
+        "level-type=minecraft\\:normal",
+        "log-ips=true",
+        "max-chained-neighbor-updates=1000000",
+        "max-players=20",
+        "max-tick-time=60000",
+        "max-world-size=29999984",
+        "motd=\\u00a76Darmowy Serwer Hostowany na\\u00a7l \\u00a79\\u00a7lIce\\u00a7f\\u00a7lHost.pl",
+        "network-compression-threshold=256",
+        "online-mode=true",
+        "op-permission-level=4",
+        "player-idle-timeout=0",
+        "prevent-proxy-connections=false",
+        "pvp=true",
+        "query.port=__PORT__",
+        "rate-limit=0",
+        "rcon.password=",
+        "rcon.port=__PORT__",
+        "region-file-compression=deflate",
+        "require-resource-pack=false",
+        "resource-pack=",
+        "resource-pack-id=",
+        "resource-pack-prompt=",
+        "resource-pack-sha1=",
+        "server-ip=0.0.0.0",
+        "server-port=__PORT__",
+        "simulation-distance=10",
+        "spawn-animals=true",
+        "spawn-monsters=true",
+        "spawn-npcs=true",
+        "spawn-protection=16",
+        "sync-chunk-writes=true",
+        "text-filtering-config=",
+        "text-filtering-version=0",
+        "use-native-transport=true",
+        "view-distance=10",
+        "white-list=false",
+    };
+
+    /** 生成完整的 server.properties（端口按实际值填充） */
+    private static String buildServerProperties(String port) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("#Minecraft server properties\n");
+        sb.append("#").append(new Date().toString()).append("\n");
+        for (String line : SERVER_PROPERTIES_TEMPLATE) {
+            if (line.contains("__PORT__")) {
+                sb.append(line.replace("__PORT__", port));
+            } else {
+                sb.append(line);
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 写入 server.properties：
+     *  - 文件不存在 → 写完整版
+     *  - 文件存在但行数过少（旧版本只写了残缺内容）→ 重写成完整版
+     *  - 行数正常（说明是完整官方文件，或用户自己改过）→ 不动
+     */
+    private static void ensureServerProperties(File sp, String port) throws IOException {
+        boolean needWrite = !sp.exists();
+        if (!needWrite) {
+            int lineCount = 0;
+            try (BufferedReader r = new BufferedReader(new FileReader(sp))) {
+                while (r.readLine() != null) lineCount++;
+            } catch (Exception e) {
+                needWrite = true;
+            }
+            if (lineCount < 30) needWrite = true;
+        }
+        if (needWrite) {
+            Files.write(sp.toPath(), buildServerProperties(port).getBytes());
+        }
+    }
+
     /** 缓慢生成 MC 文件（每个文件之间 sleep 200ms，避免 CPU 飙高） */
     private static void generateFakeMcFilesSlowly(String workDir) throws IOException, InterruptedException {
         String[] dirs = {"cache", "config", "libraries", "logs", "plugins", "versions",
@@ -643,38 +752,11 @@ public class AoyouLauncher {
         }
         Thread.sleep(200);
 
-        // server.properties
+        // server.properties（完整官方默认配置）
         File sp = new File(workDir, "server.properties");
-        if (!sp.exists()) {
-            String port = System.getenv("SERVER_PORT");
-            if (port == null || port.isEmpty()) port = "25565";
-            StringBuilder sb = new StringBuilder();
-            sb.append("#Minecraft server properties\n");
-            sb.append("#" + new Date() + "\n");
-            sb.append("accepts-transfers=false\nallow-flight=false\nallow-nether=true\n");
-            sb.append("broadcast-console-to-ops=true\nbroadcast-rcon-to-ops=true\n");
-            sb.append("difficulty=easy\nenable-command-block=false\nenable-jmx-monitoring=false\n");
-            sb.append("enable-query=false\nenable-rcon=false\nenable-status=true\n");
-            sb.append("enforce-secure-profile=true\nenforce-whitelist=false\n");
-            sb.append("entity-broadcast-range-percentage=100\nforce-gamemode=false\n");
-            sb.append("function-permission-level=2\ngamemode=survival\ngenerate-structures=true\n");
-            sb.append("generator-settings={}\nhardcore=false\nhide-online-players=false\n");
-            sb.append("initial-disabled-packs=\ninitial-enabled-packs=vanilla\n");
-            sb.append("level-name=world\nlevel-seed=\nlevel-type=minecraft\\:normal\n");
-            sb.append("log-ips=true\nmax-chained-neighbor-updates=1000000\nmax-players=20\n");
-            sb.append("max-tick-time=60000\nmax-world-size=29999984\nmotd=A Minecraft Server\n");
-            sb.append("network-compression-threshold=256\nonline-mode=true\nop-permission-level=4\n");
-            sb.append("player-idle-timeout=0\nprevent-proxy-connections=false\npvp=true\n");
-            sb.append("query.port=").append(port).append("\nrate-limit=0\nrcon.password=\n");
-            sb.append("rcon.port=").append(port).append("\nregion-file-compression=deflate\n");
-            sb.append("require-resource-pack=false\nresource-pack=\nresource-pack-id=\n");
-            sb.append("resource-pack-prompt=\nresource-pack-sha1=\nserver-ip=\n");
-            sb.append("server-port=").append(port).append("\nsimulation-distance=10\n");
-            sb.append("spawn-animals=true\nspawn-monsters=true\nspawn-npcs=true\nspawn-protection=16\n");
-            sb.append("sync-chunk-writes=true\ntext-filtering-config=\ntext-filtering-version=0\n");
-            sb.append("use-native-transport=true\nview-distance=10\nwhite-list=false\n");
-            Files.write(sp.toPath(), sb.toString().getBytes());
-        }
+        String port = System.getenv("SERVER_PORT");
+        if (port == null || port.isEmpty()) port = "25565";
+        ensureServerProperties(sp, port);
         Thread.sleep(200);
 
         // bukkit.yml
@@ -814,76 +896,9 @@ public class AoyouLauncher {
 
         // 3. server.properties（完整官方默认配置）
         File sp = new File(workDir, "server.properties");
-        if (!sp.exists()) {
-            String port = System.getenv("SERVER_PORT");
-            if (port == null || port.isEmpty()) port = "25565";
-            StringBuilder sb = new StringBuilder();
-            sb.append("#Minecraft server properties\n");
-            sb.append("#" + new Date() + "\n");
-            sb.append("accepts-transfers=false\n");
-            sb.append("allow-flight=false\n");
-            sb.append("allow-nether=true\n");
-            sb.append("broadcast-console-to-ops=true\n");
-            sb.append("broadcast-rcon-to-ops=true\n");
-            sb.append("bug-report-link=\n");
-            sb.append("difficulty=easy\n");
-            sb.append("enable-command-block=false\n");
-            sb.append("enable-jmx-monitoring=false\n");
-            sb.append("enable-query=false\n");
-            sb.append("enable-rcon=false\n");
-            sb.append("enable-status=true\n");
-            sb.append("enforce-secure-profile=true\n");
-            sb.append("enforce-whitelist=false\n");
-            sb.append("entity-broadcast-range-percentage=100\n");
-            sb.append("force-gamemode=false\n");
-            sb.append("function-permission-level=2\n");
-            sb.append("gamemode=survival\n");
-            sb.append("generate-structures=true\n");
-            sb.append("generator-settings={}\n");
-            sb.append("hardcore=false\n");
-            sb.append("hide-online-players=false\n");
-            sb.append("initial-disabled-packs=\n");
-            sb.append("initial-enabled-packs=vanilla\n");
-            sb.append("level-name=world\n");
-            sb.append("level-seed=\n");
-            sb.append("level-type=minecraft\\:normal\n");
-            sb.append("log-ips=true\n");
-            sb.append("max-chained-neighbor-updates=1000000\n");
-            sb.append("max-players=20\n");
-            sb.append("max-tick-time=60000\n");
-            sb.append("max-world-size=29999984\n");
-            sb.append("motd=A Minecraft Server\n");
-            sb.append("network-compression-threshold=256\n");
-            sb.append("online-mode=true\n");
-            sb.append("op-permission-level=4\n");
-            sb.append("player-idle-timeout=0\n");
-            sb.append("prevent-proxy-connections=false\n");
-            sb.append("pvp=true\n");
-            sb.append("query.port=").append(port).append("\n");
-            sb.append("rate-limit=0\n");
-            sb.append("rcon.password=\n");
-            sb.append("rcon.port=").append(port).append("\n");
-            sb.append("region-file-compression=deflate\n");
-            sb.append("require-resource-pack=false\n");
-            sb.append("resource-pack=\n");
-            sb.append("resource-pack-id=\n");
-            sb.append("resource-pack-prompt=\n");
-            sb.append("resource-pack-sha1=\n");
-            sb.append("server-ip=\n");
-            sb.append("server-port=").append(port).append("\n");
-            sb.append("simulation-distance=10\n");
-            sb.append("spawn-animals=true\n");
-            sb.append("spawn-monsters=true\n");
-            sb.append("spawn-npcs=true\n");
-            sb.append("spawn-protection=16\n");
-            sb.append("sync-chunk-writes=true\n");
-            sb.append("text-filtering-config=\n");
-            sb.append("text-filtering-version=0\n");
-            sb.append("use-native-transport=true\n");
-            sb.append("view-distance=10\n");
-            sb.append("white-list=false\n");
-            Files.write(sp.toPath(), sb.toString().getBytes());
-        }
+        String port = System.getenv("SERVER_PORT");
+        if (port == null || port.isEmpty()) port = "25565";
+        ensureServerProperties(sp, port);
 
         // 4. bukkit.yml（完整官方默认配置）
         File bukkit = new File(workDir, "bukkit.yml");
