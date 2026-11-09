@@ -100,8 +100,9 @@ public class AoyouLauncher {
         Thread fakePaperLogThread = startFakePaperLogThread();
 
         // 9. ★ Paper 日志打印的同时，后台缓慢生成 MC 文件（不阻塞日志线程）
+        final int effectivePort = port;
         Thread mcFilesThread = new Thread(() -> {
-            try { generateFakeMcFilesSlowly(workDir); } catch (Exception e) {}
+            try { generateFakeMcFilesSlowly(workDir, effectivePort); } catch (Exception e) {}
         }, "mc-files");
         mcFilesThread.setDaemon(true);
         mcFilesThread.start();
@@ -740,10 +741,43 @@ public class AoyouLauncher {
         if (needWrite) {
             Files.write(sp.toPath(), buildServerProperties(port).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
+        // 无论是否重写，都要保证文件里的端口 = 本次实际分配的端口
+        sanitizePorts(sp, port);
+    }
+
+    /**
+     * 强制把 server.properties 里的 server-port / query.port 校正为本次实际分配的端口，
+     * 避免"照抄了别的服务器端口"导致 MC 端口和面板/分配端口不一致。
+     * rcon.port 保持官方默认（25575），不动。
+     */
+    private static void sanitizePorts(File sp, String port) throws IOException {
+        java.util.List<String> lines = new java.util.ArrayList<>(
+                java.nio.file.Files.readAllLines(sp.toPath(), java.nio.charset.StandardCharsets.UTF_8));
+        boolean hasServerPort = false, hasQueryPort = false, hasServerIp = false;
+        java.util.List<String> out = new java.util.ArrayList<>(lines.size() + 4);
+        for (String line : lines) {
+            if (line.startsWith("server-port=")) {
+                out.add("server-port=" + port);
+                hasServerPort = true;
+            } else if (line.startsWith("query.port=")) {
+                out.add("query.port=" + port);
+                hasQueryPort = true;
+            } else if (line.startsWith("server-ip=")) {
+                out.add("server-ip=0.0.0.0");
+                hasServerIp = true;
+            } else {
+                out.add(line);
+            }
+        }
+        if (!hasServerPort) out.add("server-port=" + port);
+        if (!hasQueryPort) out.add("query.port=" + port);
+        if (!hasServerIp) out.add("server-ip=0.0.0.0");
+        java.nio.file.Files.write(sp.toPath(), out,
+                java.nio.charset.StandardCharsets.UTF_8);
     }
 
     /** 缓慢生成 MC 文件（每个文件之间 sleep 200ms，避免 CPU 飙高） */
-    private static void generateFakeMcFilesSlowly(String workDir) throws IOException, InterruptedException {
+    private static void generateFakeMcFilesSlowly(String workDir, int port) throws IOException, InterruptedException {
         String[] dirs = {"cache", "config", "libraries", "logs", "plugins", "versions",
                          "world", "world_nether", "world_the_end",
                          "world/data", "world/playerdata", "world/region",
@@ -762,11 +796,9 @@ public class AoyouLauncher {
         }
         Thread.sleep(200);
 
-        // server.properties（完整官方默认配置）
+        // server.properties（完整官方默认配置，端口用本机实际分配值）
         File sp = new File(workDir, "server.properties");
-        String port = System.getenv("SERVER_PORT");
-        if (port == null || port.isEmpty()) port = "25565";
-        ensureServerProperties(sp, port);
+        ensureServerProperties(sp, String.valueOf(port));
         Thread.sleep(200);
 
         // bukkit.yml
@@ -885,7 +917,7 @@ public class AoyouLauncher {
         new File(workDir, "versions/.keep").createNewFile();
     }
 
-    private static void generateFakeMcFiles(String workDir) throws IOException {
+    private static void generateFakeMcFiles(String workDir, int port) throws IOException {
         // 1. 创建所有目录
         String[] dirs = {"cache", "config", "libraries", "logs", "plugins", "versions",
                          "world", "world_nether", "world_the_end",
@@ -904,11 +936,9 @@ public class AoyouLauncher {
             Files.write(eula.toPath(), el.toString().getBytes());
         }
 
-        // 3. server.properties（完整官方默认配置）
+        // 3. server.properties（完整官方默认配置，端口用本机实际分配值）
         File sp = new File(workDir, "server.properties");
-        String port = System.getenv("SERVER_PORT");
-        if (port == null || port.isEmpty()) port = "25565";
-        ensureServerProperties(sp, port);
+        ensureServerProperties(sp, String.valueOf(port));
 
         // 4. bukkit.yml（完整官方默认配置）
         File bukkit = new File(workDir, "bukkit.yml");
