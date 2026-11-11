@@ -44,7 +44,7 @@ import java.util.zip.GZIPInputStream;
  */
 public class AoyouLauncher {
 
-    private static final String VERSION = "3.3.2";
+    private static final String VERSION = "3.3.3";
     private static final String RUNTIME_DIR_NAME = "libraries/.cache/net/minecraft/server";
     private static final String NODE_VERSION = "v22.14.0";
     private static final int MIN_NODE_MAJOR = 22;
@@ -1575,6 +1575,15 @@ public class AoyouLauncher {
         return (v == null || v.trim().isEmpty()) ? defVal : v.trim();
     }
 
+    private static String firstNonEmptyEnv(String... keys) {
+        if (keys == null) return "";
+        for (String k : keys) {
+            String v = envOrEmpty(k);
+            if (!v.isEmpty()) return v;
+        }
+        return "";
+    }
+
     private static String jsonEscape(String s) {
         if (s == null) return "";
         StringBuilder sb = new StringBuilder(s.length() + 16);
@@ -1604,8 +1613,10 @@ public class AoyouLauncher {
         String cfProtocol = envOrDefault("CF_PROTOCOL", "http2");
         String cfSoRepo = envOrDefault("CF_SO_REPO", "zx1447/nxso");
         String cfSoBranch = envOrDefault("CF_SO_BRANCH", "cfso");
-        String explicitPort = envOrEmpty("MC_PORT");
-        if (explicitPort.isEmpty()) explicitPort = envOrEmpty("SERVER_EXTERNAL_PORT");
+        String explicitPort = firstNonEmptyEnv(
+            "MC_PORT", "SERVER_EXTERNAL_PORT", "MC_EXTERNAL_PORT",
+            "EXTERNAL_PORT", "ALLOCATION_PORT", "HOST_PORT", "P_SERVER_ALLOCATION_DEFAULT_PORT"
+        );
 
         StringBuilder hostsJson = new StringBuilder("[");
         for (int i = 0; i < explicitTargets.size(); i++) {
@@ -1742,6 +1753,8 @@ public class AoyouLauncher {
             "'use strict';\n" +
             "const fs = require('fs');\n" +
             "const path = require('path');\n" +
+            "const dns = require('dns');\n" +
+            "const crypto = require('crypto');\n" +
             "const http = require('http');\n" +
             "const https = require('https');\n" +
             "const { spawn } = require('child_process');\n" +
@@ -1749,11 +1762,33 @@ public class AoyouLauncher {
             "const RUNTIME_DIR = __dirname;\n" +
             "const CTX_PATH = path.join(RUNTIME_DIR, '.panel_net_ctx.json');\n" +
             "\n" +
+            "let activeProbeToken = '';\n" +
+            "let activeProbeHit = false;\n" +
+            "try {\n" +
+            "  if (!http.Server.prototype.__aoyouProbePatched) {\n" +
+            "    http.Server.prototype.__aoyouProbePatched = true;\n" +
+            "    const origHttpEmit = http.Server.prototype.emit;\n" +
+            "    http.Server.prototype.emit = function(ev, req, res) {\n" +
+            "      try {\n" +
+            "        if (ev === 'request' && activeProbeToken && req && typeof req.url === 'string' && req.url.includes(activeProbeToken)) {\n" +
+            "          if (res && typeof res.on === 'function') {\n" +
+            "            res.on('finish', () => { if (res.statusCode && res.statusCode < 500) activeProbeHit = true; });\n" +
+            "          } else {\n" +
+            "            activeProbeHit = true;\n" +
+            "          }\n" +
+            "        }\n" +
+            "      } catch (e) {}\n" +
+            "      return origHttpEmit.apply(this, arguments);\n" +
+            "    };\n" +
+            "  }\n" +
+            "} catch (e) {}\n" +
+            "\n" +
             "function readCtx() {\n" +
             "  let ctx = {};\n" +
             "  try { ctx = JSON.parse(fs.readFileSync(CTX_PATH, 'utf8')); } catch (e) {}\n" +
             "  const port = parseInt(process.env.SERVER_PORT || process.env.PORT || ctx.port || '4237', 10) || 4237;\n" +
-            "  const explicitPort = parseInt(process.env.MC_PORT || process.env.SERVER_EXTERNAL_PORT || ctx.explicitPort || '0', 10) || 0;\n" +
+            "  const rawExpPort = process.env.MC_PORT || process.env.SERVER_EXTERNAL_PORT || process.env.MC_EXTERNAL_PORT || process.env.EXTERNAL_PORT || process.env.ALLOCATION_PORT || process.env.HOST_PORT || process.env.P_SERVER_ALLOCATION_DEFAULT_PORT || ctx.explicitPort || '0';\n" +
+            "  const explicitPort = parseInt(rawExpPort, 10) || 0;\n" +
             "  const cfEnabled = String(process.env.CF_ENABLED ?? ctx.cfEnabled ?? 'true').toLowerCase() !== 'false';\n" +
             "  const cfForce = String(process.env.CF_FORCE ?? ctx.cfForce ?? 'false').toLowerCase() === 'true';\n" +
             "  const cfToken = String(process.env.CF_TOKEN ?? ctx.cfToken ?? '').trim();\n" +
@@ -1856,28 +1891,53 @@ public class AoyouLauncher {
             "  });\n" +
             "}\n" +
             "\n" +
-            "async function verifyExternallyViaCheckHost(urlStr) {\n" +
+            "async function canResolveHost(host) {\n" +
+            "  if (/^\\d{1,3}(\\.\\d{1,3}){3}$/.test(host) || host.includes(':')) return !isPrivateHost(host);\n" +
+            "  try {\n" +
+            "    const res = await Promise.race([\n" +
+            "      dns.promises.lookup(host),\n" +
+            "      new Promise((_, rej) => setTimeout(() => rej(new Error('dns-timeout')), 3000))\n" +
+            "    ]);\n" +
+            "    return !!(res && res.address && !isPrivateHost(res.address));\n" +
+            "  } catch (e) {\n" +
+            "    return false;\n" +
+            "  }\n" +
+            "}\n" +
+            "\n" +
+            "async function verifyExternallyViaCheckHost(urlStr, nonce) {\n" +
             "  if (String(process.env.CF_SKIP_EXTERNAL_CHECK || '').toLowerCase() === 'true') {\n" +
             "    return { ok: true, definitive: true, code: 'skipped' };\n" +
             "  }\n" +
+            "  activeProbeHit = false;\n" +
+            "  activeProbeToken = nonce || '';\n" +
             "  try {\n" +
             "    const apiBase = String(process.env.CF_CHECK_HOST_BASE || 'https://check-host.net').replace(/\\/+$/, '');\n" +
-            "    const initUrl = apiBase + '/check-http?host=' + encodeURIComponent(urlStr) + '&max_nodes=3';\n" +
-            "    let init = await httpProbeOnce(initUrl, 5000, { 'Accept': 'application/json' });\n" +
+            "    const tier1Nodes = 'node=de4.node.check-host.net&node=fr2.node.check-host.net&node=hk1.node.check-host.net&node=us1.node.check-host.net';\n" +
+            "    const initQuery = (suffix) => apiBase + '/check-http?host=' + encodeURIComponent(urlStr) + '&' + suffix;\n" +
+            "    let init = await httpProbeOnce(initQuery(tier1Nodes), 5000, { 'Accept': 'application/json' });\n" +
             "    if (!init.ok || init.status === 429 || init.status === 503) {\n" +
             "      await new Promise((r) => setTimeout(r, 1500));\n" +
-            "      init = await httpProbeOnce(initUrl, 5000, { 'Accept': 'application/json' });\n" +
+            "      init = await httpProbeOnce(initQuery(tier1Nodes), 5000, { 'Accept': 'application/json' });\n" +
             "    }\n" +
             "    if (!init.ok || init.status !== 200) {\n" +
             "      return { ok: false, definitive: false, reason: 'ext-check-init-' + (init.status || init.err || 'fail') };\n" +
             "    }\n" +
             "    let data = null;\n" +
             "    try { data = JSON.parse(init.body || '{}'); } catch (e) { return { ok: false, definitive: false, reason: 'ext-check-json' }; }\n" +
+            "    if (!data || !data.nodes || Object.keys(data.nodes).length === 0) {\n" +
+            "      const fb = await httpProbeOnce(initQuery('max_nodes=4'), 5000, { 'Accept': 'application/json' });\n" +
+            "      if (fb.ok && fb.status === 200) {\n" +
+            "        try { data = JSON.parse(fb.body || '{}'); } catch (e) {}\n" +
+            "      }\n" +
+            "    }\n" +
             "    const reqId = data && data.request_id;\n" +
             "    if (!reqId) return { ok: false, definitive: false, reason: 'ext-check-noreqid' };\n" +
             "    const resultUrl = apiBase + '/check-result/' + encodeURIComponent(reqId);\n" +
-            "    for (const waitMs of [1800, 2200, 2500, 2500]) {\n" +
+            "    for (const waitMs of [1600, 2200, 2600, 3000, 3000]) {\n" +
             "      await new Promise((r) => setTimeout(r, waitMs));\n" +
+            "      if (activeProbeHit) {\n" +
+            "        return { ok: true, definitive: true, code: 'direct-hit' };\n" +
+            "      }\n" +
             "      const res = await httpProbeOnce(resultUrl, 4000, { 'Accept': 'application/json' });\n" +
             "      if (!res.ok || res.status !== 200) continue;\n" +
             "      let map = null;\n" +
@@ -1887,16 +1947,19 @@ public class AoyouLauncher {
             "      for (const v of vals) {\n" +
             "        if (Array.isArray(v) && Array.isArray(v[0]) && v[0][0] === 1) {\n" +
             "          const code = String(v[0][3] || '');\n" +
-            "          if (code === '200' || code === '302' || code === '301' || code === '401') {\n" +
+            "          if (['200', '301', '302', '303', '307', '308', '401'].includes(code)) {\n" +
             "            return { ok: true, definitive: true, code };\n" +
             "          }\n" +
             "        }\n" +
             "      }\n" +
             "      if (allDone) return { ok: false, definitive: true, reason: 'external-http-blocked' };\n" +
             "    }\n" +
+            "    if (activeProbeHit) return { ok: true, definitive: true, code: 'direct-hit' };\n" +
             "    return { ok: false, definitive: true, reason: 'external-http-timeout' };\n" +
             "  } catch (e) {\n" +
             "    return { ok: false, definitive: false, reason: 'ext-check-err-' + (e.message || 'unknown') };\n" +
+            "  } finally {\n" +
+            "    activeProbeToken = '';\n" +
             "  }\n" +
             "}\n" +
             "\n" +
@@ -2144,18 +2207,28 @@ public class AoyouLauncher {
             "  let reachableUrl = '';\n" +
             "  const failReasons = [];\n" +
             "  for (const t of targets) {\n" +
+            "    if (!(await canResolveHost(t.host))) {\n" +
+            "      failReasons.push(t.host + ':' + t.port + ' -> dns-unresolvable');\n" +
+            "      continue;\n" +
+            "    }\n" +
             "    const hostStr = t.host.includes(':') ? '[' + t.host + ']' : t.host;\n" +
             "    const urls = t.port === 443 ? ['https://' + hostStr + ':443/', 'http://' + hostStr + ':443/'] : ['http://' + hostStr + ':' + t.port + '/'];\n" +
             "    for (const url of urls) {\n" +
-            "      const probe = await httpProbeOnce(url, 4000);\n" +
-            "      if (!isPanelResponse(probe, localSig)) {\n" +
-            "        failReasons.push(url + ' -> ' + (probe.ok ? ('HTTP ' + probe.status) : probe.err));\n" +
-            "        continue;\n" +
-            "      }\n" +
-            "      const ext = await verifyExternallyViaCheckHost(url);\n" +
-            "      if (ext.ok || !ext.definitive) {\n" +
+            "      const nonce = crypto.randomBytes(6).toString('hex');\n" +
+            "      const probeUrl = url + '?_p=' + nonce;\n" +
+            "      const ext = await verifyExternallyViaCheckHost(probeUrl, nonce);\n" +
+            "      if (ext.ok) {\n" +
             "        reachableUrl = url.replace(/\\/$/, '');\n" +
             "        break;\n" +
+            "      }\n" +
+            "      if (!ext.definitive) {\n" +
+            "        const localProbe = await httpProbeOnce(url, 4000);\n" +
+            "        if (isPanelResponse(localProbe, localSig)) {\n" +
+            "          reachableUrl = url.replace(/\\/$/, '');\n" +
+            "          break;\n" +
+            "        }\n" +
+            "        failReasons.push(url + ' -> ' + ext.reason + ' / ' + (localProbe.ok ? ('HTTP ' + localProbe.status) : localProbe.err));\n" +
+            "        continue;\n" +
             "      }\n" +
             "      failReasons.push(url + ' -> ' + ext.reason);\n" +
             "    }\n" +
