@@ -45,7 +45,7 @@ Java 启动器解压内嵌运行时到 .aoyou-runtime/
 
 | 字段 | 值 |
 |------|-----|
-| **Name** | 傲游面板 |
+| **Name** | 板 |
 | **Docker Image** | `ghcr.io/pterodactyl/yolks:java_21` |
 | **Startup Command** | `java -Xms128M -Xmx512M -jar aoyou-panel.jar` |
 
