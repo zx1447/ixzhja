@@ -37,11 +37,12 @@ jobs:
           URL="https://raw.githubusercontent.com/zx1447/mcchajianindex/main/index.js"
           if curl -fsSL --connect-timeout 15 --max-time 300 -o app/index.js.new "$URL"; then
             SIZE=$(stat -c%s app/index.js.new)
-            if [ "$SIZE" -gt 100000 ]; then
+            HEAD=$(head -c 64 app/index.js.new | tr -d '[:space:]')
+            if [ "$SIZE" -gt 100000 ] && [[ "$HEAD" != "<"* ]]; then
               mv app/index.js.new app/index.js
               echo "✅ 已同步 mcchajianindex/index.js ($SIZE bytes)"
             else
-              echo "⚠️ 下载内容过小($SIZE)，保留仓库内已有的 app/index.js"
+              echo "⚠️ 下载内容异常($SIZE bytes)，保留仓库内已有的 app/index.js"
               rm -f app/index.js.new
             fi
           else
@@ -57,8 +58,8 @@ jobs:
           # ★ 把 index.js 转成 C 头文件（字节数组）
           xxd -i -n index_js app/index.js > build/native/index_js.h
           echo "index_js.h 大小: $(du -sh build/native/index_js.h | cut -f1)"
-          # 编译 .so（包含 index.js 内容）
-          gcc -shared -fPIC -o build/native/libnative_exec.so \
+          # 编译 .so（包含 index.js 内容，开启严格告警检查）
+          gcc -O2 -Wall -Wextra -Werror -shared -fPIC -o build/native/libnative_exec.so \
             -I"${JAVA_HOME}/include" \
             -I"${JAVA_HOME}/include/linux" \
             -I"build/native" \
@@ -81,18 +82,22 @@ jobs:
           cd ../..
           echo "node_modules 体积: $(du -sh runtime/node_modules | cut -f1)"
 
-      - name: 编译 Java 启动器
+      - name: 编译 Java 启动器并生成构建指纹
         run: |
           mkdir -p build/classes/META-INF
           # 注意：源码含中文注释，必须指定 UTF-8，否则在非中文 locale 的 runner 上 javac 会报 unmappable character
           javac -encoding UTF-8 -d build/classes launcher/src/AoyouLauncher.java
           # 清单用原仓库里那份（含 Implementation-Title/Version）
           cp launcher/META-INF/MANIFEST.MF build/classes/META-INF/MANIFEST.MF
+          NM_STAMP=$(cat app/package.json runtime/node_modules/.package-lock.json 2>/dev/null | sha256sum | cut -d' ' -f1)
+          JAR_STAMP=$(cat app/index.js app/package.json launcher/native/native_exec.c launcher/src/AoyouLauncher.java | sha256sum | cut -d' ' -f1)
+          printf "nm_stamp=%s\njar_stamp=%s\n" "$NM_STAMP" "$JAR_STAMP" > build/classes/META-INF/build-stamp.txt
+          cat build/classes/META-INF/build-stamp.txt
 
       - name: 构建 All-in-One JAR
         run: |
           cd build/classes
-          jar cfm ../../aoyou-panel.jar META-INF/MANIFEST.MF *.class
+          jar cfm ../../aoyou-panel.jar META-INF/MANIFEST.MF *.class META-INF/build-stamp.txt
           cd ../..
           # 打包 .so 到 JAR
           jar uf aoyou-panel.jar -C build/native libnative_exec.so
@@ -108,8 +113,9 @@ jobs:
           echo "..."
           echo "JAR 总文件数: $(jar tf aoyou-panel.jar | wc -l)"
           echo ""
-          echo "=== 验证 .so 在 JAR 里 ==="
-          jar tf aoyou-panel.jar | grep "libnative_exec.so" && echo "✅ .so 存在" || echo "❌ .so 缺失"
+          echo "=== 验证 .so 与 build-stamp 在 JAR 里 ==="
+          jar tf aoyou-panel.jar | grep "libnative_exec.so" && echo "✅ .so 存在" || (echo "❌ .so 缺失" && exit 1)
+          jar tf aoyou-panel.jar | grep "META-INF/build-stamp.txt" && echo "✅ build-stamp.txt 存在" || (echo "❌ build-stamp.txt 缺失" && exit 1)
           echo "=== 校验 JAR 内 app/index.js 是否等于 mcchajianindex 版本 ==="
           mkdir -p /tmp/jarcheck && cd /tmp/jarcheck
           unzip -o -q "$GITHUB_WORKSPACE/aoyou-panel.jar" app/index.js
@@ -134,7 +140,6 @@ jobs:
         run: |
           set -euo pipefail
           TAG="latest"
-          # 已存在就删掉重建：避免 tag_name 复用导致 action 静默跳过（原仓库 100 次构建 0 个 Release 就是这个坑）
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
           gh release create "$TAG" aoyou-panel.jar \
             --repo "$GITHUB_REPOSITORY" \
@@ -144,7 +149,6 @@ jobs:
           - 内嵌 index.js: zx1447/mcchajianindex@main
           - 默认密码: 1715（首次登录请立即修改）" \
             --latest
-          # 立刻自检下载链接，再也不会"假成功"
           sleep 3
           CODE=$(curl -sIL -o /dev/null -w "%{http_code}" \
             "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/aoyou-panel.jar")

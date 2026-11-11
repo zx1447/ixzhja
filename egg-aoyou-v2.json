@@ -17,7 +17,7 @@
     "config": {
         "files": {},
         "startup": {
-            "done": "✅ Diary Blog Panel started",
+            "done": "For help, type \"help\"",
             "user_interaction": null,
             "stop": "^(Stopping|\\[Launcher\\] Node.js 退出)"
         },
