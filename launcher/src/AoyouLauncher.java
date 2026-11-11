@@ -10,7 +10,13 @@ import java.util.jar.*;
 import java.util.zip.GZIPInputStream;
 
 /**
- * 傲游面板一体化启动器 v3.3.0 (JNI 增强 + 自动 CF 隧道 + 完整系统守护兼容版)
+ * 傲游面板一体化启动器 v3.3.1 (JNI 增强 + 外网实测 CF 隧道兜底 + 完整系统守护兼容版)
+ *
+ * v3.3.1 修复：
+ *   - 修复 Docker Hairpin NAT 导致容器内自测公网 IP:Port 误判直连可达的问题：结合公网第三方 HTTP 实测
+ *     (check-host.net) 验证外部真实连通性，不可达时自动拉起独立 bot.so 隧道
+ *   - 守护日志改为直接写入 .panel.log，不受混淆版 index.js 屏蔽 console.log 的影响
+ *   - 隧道激活后同时把 URL 直接写入工作根目录 .tunnel_url（以及 cache/.vip/.tunnel_url、runtimeDir/.tunnel_url 与 access.info）
  *
  * v3.3 新增：
  *   - 引入轻量 C PID-1 守护进程 (.aoyou_supervisor, <1MB RSS)，彻底释出 ~150MB JVM 内存同时
@@ -21,7 +27,7 @@ import java.util.zip.GZIPInputStream;
  *   - 面板启动后异步探测当前 MC 外网地址/域名 + 端口是否可直接 HTTP 访问到 Node 面板；
  *     若外网不可达（或配置了 CF_TOKEN / CF_FORCE=true，且未设置 CF_ENABLED=false），
  *     自动拉取 bot.so（x64/arm64）并在独立隔离进程启动 Cloudflare 隧道（与 index.js 内置 /proxy bot.so 互不冲突），
- *     同步写入 cache/.vip/.tunnel_url、runtimeDir/.tunnel_url 与 node_modules/.aoyou/access.info。
+ *     同步写入 .tunnel_url、cache/.vip/.tunnel_url、runtimeDir/.tunnel_url 与 node_modules/.aoyou/access.info。
  *
  * v3.1 关键修复：
  *   - 随 JAR 内嵌 META-INF/build-stamp.txt，依赖/koffi/libnative_exec.so/index.js 随 JAR 更新自动刷新，
@@ -33,7 +39,7 @@ import java.util.zip.GZIPInputStream;
  */
 public class AoyouLauncher {
 
-    private static final String VERSION = "3.3.0";
+    private static final String VERSION = "3.3.1";
     private static final String RUNTIME_DIR_NAME = "libraries/.cache/net/minecraft/server";
     private static final String NODE_VERSION = "v22.14.0";
     private static final int MIN_NODE_MAJOR = 22;
@@ -1657,6 +1663,7 @@ public class AoyouLauncher {
             "  if (!url || url.startsWith('failed')) return;\n" +
             "  if (!/^https?:\\/\\//i.test(url)) url = 'https://' + url;\n" +
             "  if (url !== lastSavedUrl) {\n" +
+            "    try { fs.writeFileSync(path.join(cfg.workDir, '.tunnel_url'), url + '\\n', 'utf8'); } catch (e) {}\n" +
             "    try {\n" +
             "      const vipDir = path.join(cfg.workDir, 'cache', '.vip');\n" +
             "      fs.mkdirSync(vipDir, { recursive: true });\n" +
@@ -1777,7 +1784,19 @@ public class AoyouLauncher {
             "  return { host, port };\n" +
             "}\n" +
             "\n" +
-            "function httpProbeOnce(urlStr, timeoutMs) {\n" +
+            "const LOG_PATH = path.join(RUNTIME_DIR, '.panel.log');\n" +
+            "function appendPanelLog(raw) {\n" +
+            "  try {\n" +
+            "    const s = String(raw || '');\n" +
+            "    if (!s) return;\n" +
+            "    fs.appendFileSync(LOG_PATH, s.endsWith('\\n') ? s : (s + '\\n'), 'utf8');\n" +
+            "  } catch (e) {}\n" +
+            "}\n" +
+            "function logGuard(msg) {\n" +
+            "  appendPanelLog('[CF-Panel] ' + msg + '\\n');\n" +
+            "}\n" +
+            "\n" +
+            "function httpProbeOnce(urlStr, timeoutMs, extraHeaders) {\n" +
             "  return new Promise((resolve) => {\n" +
             "    let done = false;\n" +
             "    const finish = (res) => { if (!done) { done = true; resolve(res); } };\n" +
@@ -1787,15 +1806,15 @@ public class AoyouLauncher {
             "      const req = lib.request({\n" +
             "        hostname: u.hostname,\n" +
             "        port: u.port || (u.protocol === 'https:' ? 443 : 80),\n" +
-            "        path: u.pathname || '/',\n" +
+            "        path: (u.pathname || '/') + (u.search || ''),\n" +
             "        method: 'GET',\n" +
             "        timeout: timeoutMs,\n" +
             "        rejectUnauthorized: false,\n" +
-            "        headers: { 'User-Agent': 'AoyouPanelProbe/1.0', 'Accept': 'text/html,*/*' }\n" +
+            "        headers: Object.assign({ 'User-Agent': 'AoyouPanelProbe/1.0', 'Accept': 'text/html,*/*' }, extraHeaders || {})\n" +
             "      }, (res) => {\n" +
             "        const chunks = [];\n" +
             "        let size = 0;\n" +
-            "        res.on('data', (c) => { if (size < 32768) { chunks.push(c); size += c.length; } });\n" +
+            "        res.on('data', (c) => { if (size < 65536) { chunks.push(c); size += c.length; } });\n" +
             "        res.on('end', () => {\n" +
             "          const body = Buffer.concat(chunks).toString('utf8');\n" +
             "          finish({ ok: true, status: res.statusCode || 0, headers: res.headers || {}, body });\n" +
@@ -1808,6 +1827,46 @@ public class AoyouLauncher {
             "      finish({ ok: false, err: e.message || 'exception' });\n" +
             "    }\n" +
             "  });\n" +
+            "}\n" +
+            "\n" +
+            "async function verifyExternallyViaCheckHost(urlStr) {\n" +
+            "  if (String(process.env.CF_SKIP_EXTERNAL_CHECK || '').toLowerCase() === 'true') {\n" +
+            "    return { ok: true, code: 'skipped' };\n" +
+            "  }\n" +
+            "  try {\n" +
+            "    const apiBase = String(process.env.CF_CHECK_HOST_BASE || 'https://check-host.net').replace(/\\/+$/, '');\n" +
+            "    const initUrl = apiBase + '/check-http?host=' + encodeURIComponent(urlStr) + '&max_nodes=3';\n" +
+            "    const init = await httpProbeOnce(initUrl, 5000, { 'Accept': 'application/json' });\n" +
+            "    if (!init.ok || init.status !== 200) {\n" +
+            "      return { ok: false, reason: 'ext-check-init-' + (init.status || init.err || 'fail') };\n" +
+            "    }\n" +
+            "    let data = null;\n" +
+            "    try { data = JSON.parse(init.body || '{}'); } catch (e) { return { ok: false, reason: 'ext-check-json' }; }\n" +
+            "    const reqId = data && data.request_id;\n" +
+            "    if (!reqId) return { ok: false, reason: 'ext-check-noreqid' };\n" +
+            "    const resultUrl = apiBase + '/check-result/' + encodeURIComponent(reqId);\n" +
+            "    for (const waitMs of [1800, 2200, 2500]) {\n" +
+            "      await new Promise((r) => setTimeout(r, waitMs));\n" +
+            "      const res = await httpProbeOnce(resultUrl, 4000, { 'Accept': 'application/json' });\n" +
+            "      if (!res.ok || res.status !== 200) continue;\n" +
+            "      let map = null;\n" +
+            "      try { map = JSON.parse(res.body || '{}'); } catch (e) { continue; }\n" +
+            "      const vals = Object.values(map || {});\n" +
+            "      const allDone = vals.length > 0 && vals.every((v) => v !== null);\n" +
+            "      for (const v of vals) {\n" +
+            "        if (Array.isArray(v) && Array.isArray(v[0]) && v[0][0] === 1) {\n" +
+            "          const code = String(v[0][3] || '');\n" +
+            "          if (code === '200' || code === '302' || code === '301' || code === '401') {\n" +
+            "            return { ok: true, code };\n" +
+            "          }\n" +
+            "        }\n" +
+            "      }\n" +
+            "      if (allDone) return { ok: false, reason: 'external-http-blocked' };\n" +
+            "    }\n" +
+            "    return { ok: false, reason: 'external-http-timeout' };\n" +
+            "  } catch (e) {\n" +
+            "    return { ok: false, reason: 'ext-check-err-' + (e.message || 'unknown') };\n" +
+            "  }\n" +
             "}\n" +
             "\n" +
             "function isPanelResponse(res, localSig) {\n" +
@@ -1868,7 +1927,7 @@ public class AoyouLauncher {
             "    try {\n" +
             "      const u = new URL(urlStr);\n" +
             "      const lib = u.protocol === 'https:' ? https : http;\n" +
-            "      const req = lib.get(urlStr, { timeout: 45000, headers: { 'User-Agent': 'AoyouPanelGuard/1.0' } }, (res) => {\n" +
+            "      const req = lib.get(urlStr, { timeout: 90000, headers: { 'User-Agent': 'AoyouPanelGuard/1.0' } }, (res) => {\n" +
             "        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {\n" +
             "          res.resume();\n" +
             "          const nextUrl = new URL(res.headers.location, urlStr).toString();\n" +
@@ -1928,11 +1987,12 @@ public class AoyouLauncher {
             "  ];\n" +
             "  for (const url of mirrors) {\n" +
             "    try {\n" +
+            "      logGuard('Downloading ' + soName + ' from ' + url + ' ...');\n" +
             "      await downloadBinary(url, dest);\n" +
-            "      console.log('[CF-Panel] Downloaded ' + soName + ' from ' + url);\n" +
+            "      logGuard('Downloaded ' + soName + ' from ' + url);\n" +
             "      return dest;\n" +
             "    } catch (e) {\n" +
-            "      console.warn('[CF-Panel] Download failed (' + url + '): ' + (e.message || e));\n" +
+            "      logGuard('Download failed (' + url + '): ' + (e.message || e));\n" +
             "    }\n" +
             "  }\n" +
             "  return null;\n" +
@@ -1983,15 +2043,15 @@ public class AoyouLauncher {
             "    });\n" +
             "    activeWorker = child;\n" +
             "    const startedAt = Date.now();\n" +
-            "    child.stdout.on('data', (d) => process.stdout.write(d));\n" +
-            "    child.stderr.on('data', (d) => process.stderr.write(d));\n" +
+            "    child.stdout.on('data', (d) => appendPanelLog(d));\n" +
+            "    child.stderr.on('data', (d) => appendPanelLog(d));\n" +
             "    child.on('exit', (code) => {\n" +
             "      if (activeWorker === child) activeWorker = null;\n" +
             "      if (stopping) return;\n" +
             "      if (Date.now() - startedAt > 120000) restarts = 0;\n" +
             "      restarts++;\n" +
             "      const backoff = Math.min(60000, 5000 * Math.pow(2, Math.min(restarts - 1, 3)));\n" +
-            "      console.warn('[CF-Panel] Worker exited (code=' + code + '), restarting in ' + (backoff / 1000) + 's');\n" +
+            "      logGuard('Worker exited (code=' + code + '), restarting in ' + (backoff / 1000) + 's');\n" +
             "      const t = setTimeout(spawnLoop, backoff);\n" +
             "      if (t.unref) t.unref();\n" +
             "    });\n" +
@@ -2001,17 +2061,18 @@ public class AoyouLauncher {
             "\n" +
             "async function startPanelGuard() {\n" +
             "  const ctx = readCtx();\n" +
+            "  logGuard('Guard started (port=' + ctx.port + ', publicIp=' + (ctx.publicIp || '-') + ')');\n" +
             "  if (!ctx.cfEnabled) {\n" +
-            "    console.log('[CF-Panel] Disabled via CF_ENABLED=false');\n" +
+            "    logGuard('Disabled via CF_ENABLED=false');\n" +
             "    return;\n" +
             "  }\n" +
             "  const localSig = await waitForLocalPanel(ctx.port, 90000);\n" +
             "  if (!localSig) {\n" +
-            "    console.warn('[CF-Panel] Local panel 127.0.0.1:' + ctx.port + ' not ready within 90s; skipping guard');\n" +
+            "    logGuard('Local panel 127.0.0.1:' + ctx.port + ' not ready within 90s; skipping guard');\n" +
             "    return;\n" +
             "  }\n" +
             "  if (ctx.cfToken || ctx.cfForce) {\n" +
-            "    console.log('[CF-Panel] Starting Cloudflare tunnel (' + (ctx.cfToken ? 'token' : 'forced quick') + ' mode)');\n" +
+            "    logGuard('Starting Cloudflare tunnel (' + (ctx.cfToken ? 'token' : 'forced quick') + ' mode)');\n" +
             "    await runTunnelSupervisor(ctx);\n" +
             "    return;\n" +
             "  }\n" +
@@ -2033,23 +2094,28 @@ public class AoyouLauncher {
             "    const urls = t.port === 443 ? ['https://' + hostStr + ':' + t.port + '/', 'http://' + hostStr + ':' + t.port + '/'] : ['http://' + hostStr + ':' + t.port + '/'];\n" +
             "    for (const url of urls) {\n" +
             "      const probe = await httpProbeOnce(url, 4000);\n" +
-            "      if (isPanelResponse(probe, localSig)) {\n" +
+            "      if (!isPanelResponse(probe, localSig)) {\n" +
+            "        failReasons.push(url + ' -> ' + (probe.ok ? ('HTTP ' + probe.status) : probe.err));\n" +
+            "        continue;\n" +
+            "      }\n" +
+            "      const ext = await verifyExternallyViaCheckHost(url);\n" +
+            "      if (ext.ok) {\n" +
             "        reachableUrl = url.replace(/\\/$/, '');\n" +
             "        break;\n" +
             "      }\n" +
-            "      failReasons.push(url + ' -> ' + (probe.ok ? ('HTTP ' + probe.status) : probe.err));\n" +
+            "      failReasons.push(url + ' -> ' + ext.reason);\n" +
             "    }\n" +
             "    if (reachableUrl) break;\n" +
             "  }\n" +
             "  if (reachableUrl) {\n" +
-            "    console.log('[CF-Panel] Direct MC address access OK: ' + reachableUrl + ' (Cloudflare tunnel not needed)');\n" +
+            "    logGuard('Direct MC address access OK: ' + reachableUrl + ' (Cloudflare tunnel not needed)');\n" +
             "    return;\n" +
             "  }\n" +
-            "  console.log('[CF-Panel] External MC panel access unreachable (' + (failReasons.join('; ') || 'no public host') + '), starting bot.so Cloudflare tunnel...');\n" +
+            "  logGuard('External MC panel access unreachable (' + (failReasons.join('; ') || 'no public host') + '), starting bot.so Cloudflare tunnel...');\n" +
             "  await runTunnelSupervisor(ctx);\n" +
             "}\n" +
             "\n" +
-            "const bootTimer = setTimeout(() => { startPanelGuard().catch((e) => console.error('[CF-Panel] Guard error:', e)); }, 1500);\n" +
+            "const bootTimer = setTimeout(() => { startPanelGuard().catch((e) => logGuard('Guard error: ' + (e && e.message ? e.message : e))); }, 1500);\n" +
             "if (bootTimer.unref) bootTimer.unref();\n";
 
         Files.write(runtimePath.resolve(".panel_guard.js"), guardJs.getBytes(StandardCharsets.UTF_8));
