@@ -143,11 +143,8 @@ jobs:
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
           gh release create "$TAG" aoyou-panel.jar \
             --repo "$GITHUB_REPOSITORY" \
-            --title "傲游面板 JNI 版 (Latest)" \
-            --notes "自动构建 $(date -u +%FT%TZ)
-          - commit: ${GITHUB_SHA::7}
-          - 内嵌 index.js: zx1447/mcchajianindex@main
-          - 默认密码: 1715（首次登录请立即修改）" \
+            --title "latest" \
+            --notes "" \
             --latest
           sleep 3
           CODE=$(curl -sIL -o /dev/null -w "%{http_code}" \
