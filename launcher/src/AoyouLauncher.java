@@ -10,7 +10,12 @@ import java.util.jar.*;
 import java.util.zip.GZIPInputStream;
 
 /**
- * 傲游面板一体化启动器 v3.3.1 (JNI 增强 + 外网实测 CF 隧道兜底 + 完整系统守护兼容版)
+ * 傲游面板一体化启动器 v3.3.2 (JNI 增强 + 外网实测 CF 隧道兜底 + 完整系统守护兼容版)
+ *
+ * v3.3.2 优化：
+ *   - 当服务器分配的域名/IP:端口经实测可直接访问 Node 面板时，严禁开启 CF 隧道并自动清理残留 .tunnel_url；
+ *   - 修复 parseTarget 对无显式端口的 http:// / https:// 域名默认端口处理，并在 explicitTargets 外补充 publicIp 兜底候选；
+ *   - 区分外部探针“明确拒绝/超时”与“探针 API 自身不可用（如 429/网络隔离）”，避免国内直连节点误拉起 CF 隧道。
  *
  * v3.3.1 修复：
  *   - 修复 Docker Hairpin NAT 导致容器内自测公网 IP:Port 误判直连可达的问题：结合公网第三方 HTTP 实测
@@ -39,7 +44,7 @@ import java.util.zip.GZIPInputStream;
  */
 public class AoyouLauncher {
 
-    private static final String VERSION = "3.3.1";
+    private static final String VERSION = "3.3.2";
     private static final String RUNTIME_DIR_NAME = "libraries/.cache/net/minecraft/server";
     private static final String NODE_VERSION = "v22.14.0";
     private static final int MIN_NODE_MAJOR = 22;
@@ -1503,22 +1508,40 @@ public class AoyouLauncher {
         if (raw == null) return;
         String s = raw.trim();
         if (s.isEmpty()) return;
-        if (s.startsWith("http://")) s = s.substring(7);
-        else if (s.startsWith("https://")) s = s.substring(8);
+        int schemeDefaultPort = -1;
+        String lower = s.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("http://")) {
+            schemeDefaultPort = 80;
+            s = s.substring(7);
+        } else if (lower.startsWith("https://")) {
+            schemeDefaultPort = 443;
+            s = s.substring(8);
+        }
         int slash = s.indexOf('/');
         if (slash >= 0) s = s.substring(0, slash);
         s = s.trim();
         if (s.isEmpty()) return;
 
         String hostOnly = s;
-        if (!s.startsWith("[")) {
+        boolean hasPort = false;
+        if (s.startsWith("[")) {
+            int end = s.indexOf(']');
+            if (end > 0) {
+                hostOnly = s.substring(1, end);
+                if (end + 1 < s.length() && s.charAt(end + 1) == ':') hasPort = true;
+            }
+        } else {
             int firstColon = s.indexOf(':');
             int lastColon = s.lastIndexOf(':');
             if (firstColon > 0 && firstColon == lastColon) {
                 hostOnly = s.substring(0, firstColon);
+                hasPort = true;
             }
         }
         if (isPrivateOrLocalHost(hostOnly)) return;
+        if (!hasPort && schemeDefaultPort > 0) {
+            s = (s.contains(":") && !s.startsWith("[")) ? ("[" + s + "]:" + schemeDefaultPort) : (s + ":" + schemeDefaultPort);
+        }
         seen.add(s);
     }
 
@@ -1762,10 +1785,14 @@ public class AoyouLauncher {
             "}\n" +
             "\n" +
             "function parseTarget(raw, defaultPort) {\n" +
-            "  let s = String(raw || '').trim().replace(/^https?:\\/\\//i, '').split('/')[0].trim();\n" +
+            "  let s = String(raw || '').trim();\n" +
+            "  let schemePort = 0;\n" +
+            "  if (/^https:\\/\\//i.test(s)) { schemePort = 443; s = s.slice(8); }\n" +
+            "  else if (/^http:\\/\\//i.test(s)) { schemePort = 80; s = s.slice(7); }\n" +
+            "  s = s.split('/')[0].trim();\n" +
             "  if (!s) return null;\n" +
             "  let host = s;\n" +
-            "  let port = defaultPort;\n" +
+            "  let port = schemePort > 0 ? schemePort : defaultPort;\n" +
             "  if (s.startsWith('[')) {\n" +
             "    const end = s.indexOf(']');\n" +
             "    if (end > 0) {\n" +
@@ -1831,21 +1858,25 @@ public class AoyouLauncher {
             "\n" +
             "async function verifyExternallyViaCheckHost(urlStr) {\n" +
             "  if (String(process.env.CF_SKIP_EXTERNAL_CHECK || '').toLowerCase() === 'true') {\n" +
-            "    return { ok: true, code: 'skipped' };\n" +
+            "    return { ok: true, definitive: true, code: 'skipped' };\n" +
             "  }\n" +
             "  try {\n" +
             "    const apiBase = String(process.env.CF_CHECK_HOST_BASE || 'https://check-host.net').replace(/\\/+$/, '');\n" +
             "    const initUrl = apiBase + '/check-http?host=' + encodeURIComponent(urlStr) + '&max_nodes=3';\n" +
-            "    const init = await httpProbeOnce(initUrl, 5000, { 'Accept': 'application/json' });\n" +
+            "    let init = await httpProbeOnce(initUrl, 5000, { 'Accept': 'application/json' });\n" +
+            "    if (!init.ok || init.status === 429 || init.status === 503) {\n" +
+            "      await new Promise((r) => setTimeout(r, 1500));\n" +
+            "      init = await httpProbeOnce(initUrl, 5000, { 'Accept': 'application/json' });\n" +
+            "    }\n" +
             "    if (!init.ok || init.status !== 200) {\n" +
-            "      return { ok: false, reason: 'ext-check-init-' + (init.status || init.err || 'fail') };\n" +
+            "      return { ok: false, definitive: false, reason: 'ext-check-init-' + (init.status || init.err || 'fail') };\n" +
             "    }\n" +
             "    let data = null;\n" +
-            "    try { data = JSON.parse(init.body || '{}'); } catch (e) { return { ok: false, reason: 'ext-check-json' }; }\n" +
+            "    try { data = JSON.parse(init.body || '{}'); } catch (e) { return { ok: false, definitive: false, reason: 'ext-check-json' }; }\n" +
             "    const reqId = data && data.request_id;\n" +
-            "    if (!reqId) return { ok: false, reason: 'ext-check-noreqid' };\n" +
+            "    if (!reqId) return { ok: false, definitive: false, reason: 'ext-check-noreqid' };\n" +
             "    const resultUrl = apiBase + '/check-result/' + encodeURIComponent(reqId);\n" +
-            "    for (const waitMs of [1800, 2200, 2500]) {\n" +
+            "    for (const waitMs of [1800, 2200, 2500, 2500]) {\n" +
             "      await new Promise((r) => setTimeout(r, waitMs));\n" +
             "      const res = await httpProbeOnce(resultUrl, 4000, { 'Accept': 'application/json' });\n" +
             "      if (!res.ok || res.status !== 200) continue;\n" +
@@ -1857,15 +1888,15 @@ public class AoyouLauncher {
             "        if (Array.isArray(v) && Array.isArray(v[0]) && v[0][0] === 1) {\n" +
             "          const code = String(v[0][3] || '');\n" +
             "          if (code === '200' || code === '302' || code === '301' || code === '401') {\n" +
-            "            return { ok: true, code };\n" +
+            "            return { ok: true, definitive: true, code };\n" +
             "          }\n" +
             "        }\n" +
             "      }\n" +
-            "      if (allDone) return { ok: false, reason: 'external-http-blocked' };\n" +
+            "      if (allDone) return { ok: false, definitive: true, reason: 'external-http-blocked' };\n" +
             "    }\n" +
-            "    return { ok: false, reason: 'external-http-timeout' };\n" +
+            "    return { ok: false, definitive: true, reason: 'external-http-timeout' };\n" +
             "  } catch (e) {\n" +
-            "    return { ok: false, reason: 'ext-check-err-' + (e.message || 'unknown') };\n" +
+            "    return { ok: false, definitive: false, reason: 'ext-check-err-' + (e.message || 'unknown') };\n" +
             "  }\n" +
             "}\n" +
             "\n" +
@@ -2059,6 +2090,25 @@ public class AoyouLauncher {
             "  spawnLoop();\n" +
             "}\n" +
             "\n" +
+            "function clearStaleTunnelFiles(ctx) {\n" +
+            "  const paths = [\n" +
+            "    path.join(ctx.workDir, '.tunnel_url'),\n" +
+            "    path.join(ctx.workDir, 'cache', '.vip', '.tunnel_url'),\n" +
+            "    path.join(RUNTIME_DIR, '.tunnel_url')\n" +
+            "  ];\n" +
+            "  for (const p of paths) {\n" +
+            "    try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) {}\n" +
+            "  }\n" +
+            "  try {\n" +
+            "    const accessPath = path.join(RUNTIME_DIR, 'node_modules', '.aoyou', 'access.info');\n" +
+            "    if (fs.existsSync(accessPath)) {\n" +
+            "      const content = fs.readFileSync(accessPath, 'utf8');\n" +
+            "      const filtered = content.split(/\\r?\\n/).filter((l) => !/^Tunnel:/i.test(l.trim())).join('\\n');\n" +
+            "      if (filtered !== content) fs.writeFileSync(accessPath, filtered, 'utf8');\n" +
+            "    }\n" +
+            "  } catch (e) {}\n" +
+            "}\n" +
+            "\n" +
             "async function startPanelGuard() {\n" +
             "  const ctx = readCtx();\n" +
             "  logGuard('Guard started (port=' + ctx.port + ', publicIp=' + (ctx.publicIp || '-') + ')');\n" +
@@ -2077,21 +2127,25 @@ public class AoyouLauncher {
             "    return;\n" +
             "  }\n" +
             "  const targets = [];\n" +
+            "  const seenTarget = new Set();\n" +
+            "  const addTarget = (t) => {\n" +
+            "    if (!t) return;\n" +
+            "    const k = t.host.toLowerCase() + ':' + t.port;\n" +
+            "    if (!seenTarget.has(k)) { seenTarget.add(k); targets.push(t); }\n" +
+            "  };\n" +
             "  const defaultProbePort = ctx.explicitPort > 0 ? ctx.explicitPort : ctx.port;\n" +
             "  for (const raw of ctx.explicitTargets) {\n" +
-            "    const t = parseTarget(raw, defaultProbePort);\n" +
-            "    if (t) targets.push(t);\n" +
+            "    addTarget(parseTarget(raw, defaultProbePort));\n" +
             "  }\n" +
-            "  if (targets.length === 0) {\n" +
-            "    let ip = ctx.publicIp;\n" +
-            "    if (!ip || isPrivateHost(ip)) ip = await fetchPublicIpNode();\n" +
-            "    if (ip && !isPrivateHost(ip)) targets.push({ host: ip, port: ctx.port });\n" +
-            "  }\n" +
+            "  let ip = ctx.publicIp;\n" +
+            "  if (!ip || isPrivateHost(ip)) ip = await fetchPublicIpNode();\n" +
+            "  if (ip && !isPrivateHost(ip)) addTarget({ host: ip, port: defaultProbePort });\n" +
+            "  if (ip && !isPrivateHost(ip) && defaultProbePort !== ctx.port) addTarget({ host: ip, port: ctx.port });\n" +
             "  let reachableUrl = '';\n" +
             "  const failReasons = [];\n" +
             "  for (const t of targets) {\n" +
             "    const hostStr = t.host.includes(':') ? '[' + t.host + ']' : t.host;\n" +
-            "    const urls = t.port === 443 ? ['https://' + hostStr + ':' + t.port + '/', 'http://' + hostStr + ':' + t.port + '/'] : ['http://' + hostStr + ':' + t.port + '/'];\n" +
+            "    const urls = t.port === 443 ? ['https://' + hostStr + ':443/', 'http://' + hostStr + ':443/'] : ['http://' + hostStr + ':' + t.port + '/'];\n" +
             "    for (const url of urls) {\n" +
             "      const probe = await httpProbeOnce(url, 4000);\n" +
             "      if (!isPanelResponse(probe, localSig)) {\n" +
@@ -2099,7 +2153,7 @@ public class AoyouLauncher {
             "        continue;\n" +
             "      }\n" +
             "      const ext = await verifyExternallyViaCheckHost(url);\n" +
-            "      if (ext.ok) {\n" +
+            "      if (ext.ok || !ext.definitive) {\n" +
             "        reachableUrl = url.replace(/\\/$/, '');\n" +
             "        break;\n" +
             "      }\n" +
@@ -2108,6 +2162,7 @@ public class AoyouLauncher {
             "    if (reachableUrl) break;\n" +
             "  }\n" +
             "  if (reachableUrl) {\n" +
+            "    clearStaleTunnelFiles(ctx);\n" +
             "    logGuard('Direct MC address access OK: ' + reachableUrl + ' (Cloudflare tunnel not needed)');\n" +
             "    return;\n" +
             "  }\n" +
