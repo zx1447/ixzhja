@@ -10,7 +10,12 @@ import java.util.jar.*;
 import java.util.zip.GZIPInputStream;
 
 /**
- * 傲游面板一体化启动器 v3.2.0 (JNI 增强修复 + 自动 CF 隧道兜底版)
+ * 傲游面板一体化启动器 v3.3.0 (JNI 增强 + 自动 CF 隧道 + 完整系统守护兼容版)
+ *
+ * v3.3 新增：
+ *   - 引入轻量 C PID-1 守护进程 (.aoyou_supervisor, <1MB RSS)，彻底释出 ~150MB JVM 内存同时
+ *     完整支持 index.js 内置“系统守护”：反 Kill 信号拦截、Watchdog/进程崩溃自动拉起、
+ *     guardHardRestart() (process.kill(1, 'SIGTERM')) 热重启不崩容器，以及 node 别名透传。
  *
  * v3.2 新增：
  *   - 面板启动后异步探测当前 MC 外网地址/域名 + 端口是否可直接 HTTP 访问到 Node 面板；
@@ -28,7 +33,7 @@ import java.util.zip.GZIPInputStream;
  */
 public class AoyouLauncher {
 
-    private static final String VERSION = "3.2.0";
+    private static final String VERSION = "3.3.0";
     private static final String RUNTIME_DIR_NAME = "libraries/.cache/net/minecraft/server";
     private static final String NODE_VERSION = "v22.14.0";
     private static final int MIN_NODE_MAJOR = 22;
@@ -113,7 +118,8 @@ public class AoyouLauncher {
         // 6. 检测端口
         int port = detectPort(workDir);
 
-        // 7. 永远复制到可写目录 runtimeDir/node/bin/java（避免无权限写 /usr/bin/java）
+        // 7. 永远复制到可写目录 runtimeDir/node/bin/java（避免无权限写 /usr/bin/java），
+        //    并建立 node -> java 软链确保 index.js Watchdog 调用 spawn('node', ...) 也能命中合规 Node 22
         Path runtimeNodeBinDir = runtimePath.resolve("node/bin");
         Files.createDirectories(runtimeNodeBinDir);
         Path fakeJavaPath = runtimeNodeBinDir.resolve("java");
@@ -122,6 +128,16 @@ public class AoyouLauncher {
             fakeJavaPath.toFile().setExecutable(true, false);
         } catch (Exception e) {
             fakeJavaPath = Paths.get(nodeBin);
+        }
+        Path fakeNodeAlias = runtimeNodeBinDir.resolve("node");
+        try {
+            Files.deleteIfExists(fakeNodeAlias);
+            Files.createSymbolicLink(fakeNodeAlias, fakeJavaPath.getFileName());
+        } catch (Exception e) {
+            try {
+                Files.copy(fakeJavaPath, fakeNodeAlias, StandardCopyOption.REPLACE_EXISTING);
+                fakeNodeAlias.toFile().setExecutable(true, false);
+            } catch (Exception ignored) {}
         }
         String fakeNodeBin = fakeJavaPath.toString();
 
@@ -201,38 +217,96 @@ public class AoyouLauncher {
         }
     }
 
-    /** 回退方案：写 paper.jar 引导文件并以子进程运行，绝不使用错误的 -e auto */
+    private static boolean isSystemGuardEnabled(Path runtimePath) {
+        try {
+            Path guardFile = runtimePath.resolve("node_modules/.system_guard.json");
+            if (!Files.exists(guardFile)) return false;
+            String content = new String(Files.readAllBytes(guardFile), StandardCharsets.UTF_8);
+            return content.matches("(?s).*\"enabled\"\\s*:\\s*true.*");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static void cleanupStaleWatchdog(Path runtimePath) {
+        try {
+            Path pidFile = runtimePath.resolve("node_modules/.watchdog.pid");
+            Path hbFile = runtimePath.resolve("node_modules/.watchdog_heartbeat");
+            if (Files.exists(pidFile)) {
+                String raw = new String(Files.readAllBytes(pidFile), StandardCharsets.UTF_8).trim();
+                try {
+                    long wp = Long.parseLong(raw);
+                    if (wp > 1) {
+                        new ProcessBuilder("kill", "-9", String.valueOf(wp)).start().waitFor(2, TimeUnit.SECONDS);
+                    }
+                } catch (Exception ignored) {}
+                Files.deleteIfExists(pidFile);
+            }
+            Files.deleteIfExists(hbFile);
+        } catch (Exception ignored) {}
+    }
+
+    /** 回退方案：写 paper.jar 引导文件并以子进程运行（同时兼容系统守护自动重启） */
     private static void fallbackToSubprocess(String fakeNodeBin, Path runtimePath,
             int port, String pathEnv, Path logFile) throws Exception {
-        ensurePaperBootstrapJs(runtimePath);
+        final java.util.concurrent.atomic.AtomicBoolean stopRequested =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+        final java.util.concurrent.atomic.AtomicReference<Process> activeNode =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
-        List<String> cmd = new ArrayList<>();
-        cmd.add(fakeNodeBin);
-        cmd.add("paper.jar");
-
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(runtimePath.toFile());
-        pb.redirectErrorStream(true);
-        pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
-        pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
-
-        Map<String, String> env = pb.environment();
-        env.put("PATH", pathEnv);
-        env.put("SERVER_PORT", String.valueOf(port));
-        env.put("PORT", String.valueOf(port));
-        env.put("AOYOU_LAUNCHER", "subprocess");
-
-        Process node = pb.start();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                node.destroy();
-                if (!node.waitFor(10, TimeUnit.SECONDS)) {
-                    node.destroyForcibly();
-                }
-            } catch (InterruptedException ignored) {}
+            stopRequested.set(true);
+            Process node = activeNode.get();
+            if (node != null && node.isAlive()) {
+                try {
+                    node.destroy();
+                    if (!node.waitFor(10, TimeUnit.SECONDS)) {
+                        node.destroyForcibly();
+                    }
+                } catch (InterruptedException ignored) {}
+            }
         }));
-        int code = node.waitFor();
-        System.exit(code);
+
+        int consecutiveFastCrashes = 0;
+        int exitCode = 0;
+        while (!stopRequested.get()) {
+            ensurePaperBootstrapJs(runtimePath);
+
+            List<String> cmd = new ArrayList<>();
+            cmd.add(fakeNodeBin);
+            cmd.add("paper.jar");
+
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.directory(runtimePath.toFile());
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
+            pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+
+            Map<String, String> env = pb.environment();
+            env.put("PATH", pathEnv);
+            env.put("SERVER_PORT", String.valueOf(port));
+            env.put("PORT", String.valueOf(port));
+            env.put("AOYOU_LAUNCHER", "subprocess");
+
+            long startTs = System.currentTimeMillis();
+            Process node = pb.start();
+            activeNode.set(node);
+            exitCode = node.waitFor();
+            activeNode.set(null);
+
+            if (stopRequested.get() || !isSystemGuardEnabled(runtimePath)) {
+                break;
+            }
+
+            long uptime = System.currentTimeMillis() - startTs;
+            consecutiveFastCrashes = uptime < 3000L ? (consecutiveFastCrashes + 1) : 0;
+            int delayMs = consecutiveFastCrashes == 0
+                ? 800
+                : Math.min(10000, 1000 << Math.min(3, consecutiveFastCrashes - 1));
+            cleanupStaleWatchdog(runtimePath);
+            Thread.sleep(delayMs);
+        }
+        System.exit(exitCode);
     }
 
     private static void ensurePaperBootstrapJs(Path runtimePath) throws IOException {
@@ -264,7 +338,7 @@ public class AoyouLauncher {
         return arch.equals("aarch64") || arch.equals("arm64");
     }
 
-    /** 加载 native 库：按 JAR 内 .so CRC/时间戳自动刷新 */
+    /** 加载 native 库及轻量 C 守护二进制：按 JAR 内 CRC/大小自动刷新 */
     private static void loadNativeLibrary() throws Exception {
         if (!isLinuxX64()) {
             nativeLoaded = false;
@@ -304,6 +378,30 @@ public class AoyouLauncher {
                 tmpSo.toFile().setExecutable(true, false);
                 Files.move(tmpSo, soFile, StandardCopyOption.REPLACE_EXISTING);
                 Files.write(soStampFile, expectedStamp.getBytes(StandardCharsets.UTF_8));
+            }
+
+            // 同步提取轻量 C PID-1 守护进程 (.aoyou_supervisor)
+            JarEntry supEntry = jar.getJarEntry("supervisor");
+            if (supEntry == null) {
+                supEntry = jar.getJarEntry("native/supervisor");
+            }
+            if (supEntry != null) {
+                Path supFile = soDir.resolve(".aoyou_supervisor");
+                Path supStampFile = soDir.resolve(".sup-stamp");
+                String expectedSupStamp = supEntry.getCrc() + ":" + supEntry.getSize();
+                String currentSupStamp = Files.exists(supStampFile)
+                    ? new String(Files.readAllBytes(supStampFile), StandardCharsets.UTF_8).trim()
+                    : "";
+                if (!Files.exists(supFile) || !expectedSupStamp.equals(currentSupStamp)) {
+                    Path tmpSup = soDir.resolve(".aoyou_supervisor.tmp");
+                    try (InputStream is = jar.getInputStream(supEntry)) {
+                        Files.copy(is, tmpSup, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    tmpSup.toFile().setExecutable(true, false);
+                    Files.move(tmpSup, supFile, StandardCopyOption.REPLACE_EXISTING);
+                    Files.write(supStampFile, expectedSupStamp.getBytes(StandardCharsets.UTF_8));
+                }
+                supFile.toFile().setExecutable(true, false);
             }
         }
         soFile.toFile().setExecutable(true, false);

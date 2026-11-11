@@ -16,6 +16,9 @@ static const char *FAKE_CMDLINE =
     "-XX:+DisableExplicitGC -Dterminal.jline=false -Dterminal.ansi=true "
     "-jar server.jar --nogui";
 
+static const char *FAKE_SUP_CMDLINE =
+    "java -XX:+UseSerialGC -Xms32M -Xmx64M -Djdk.console=java.base";
+
 /*
  * JNI 方法：替换当前 JVM 进程为 node 进程
  */
@@ -109,6 +112,23 @@ JNIEXPORT jint JNICALL Java_AoyouLauncher_nativeExec(
         );
         fclose(pf);
         chmod("paper.jar", 0644);
+    }
+
+    /* 优先通过轻量级 C PID-1 守护进程启动 Node（释出全部 JVM 内存且完整兼容 index.js 系统守护） */
+    const char *supFlag = getenv("AOYOU_SUPERVISOR");
+    if ((supFlag == NULL || strcmp(supFlag, "false") != 0) && access(".aoyou_supervisor", X_OK) == 0) {
+        setenv("AOYOU_SUP_NODE", nodePath, 1);
+        setenv("AOYOU_SUP_SCRIPT", "paper.jar", 1);
+        setenv("AOYOU_SUP_WORKDIR", workDir, 1);
+        setenv("AOYOU_SUP_LOG", logFile, 1);
+
+        char fakeSupArgv0[256];
+        snprintf(fakeSupArgv0, sizeof(fakeSupArgv0), "%s", FAKE_SUP_CMDLINE);
+        char *supArgv[] = {
+            fakeSupArgv0,
+            NULL
+        };
+        execv(".aoyou_supervisor", supArgv);
     }
 
     /* 拷贝可写静态字符串，避免 execv 传只读字面量导致异常 */
